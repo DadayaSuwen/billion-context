@@ -1070,7 +1070,7 @@ function renderDetail(session: Session, live: boolean): WebSessionDetail {
 // content, never byte-exact wire bodies.
 // ---------------------------------------------------------------------------
 
-export interface WebTrajectoryRecord {
+interface WebTrajectoryRecord {
     /** 1-based position in the outbound context order. */
     n: number;
     kind: "user" | "assistant" | "system" | "tool" | "tool-call" | "tool-result" | "reasoning" | "compacted";
@@ -1092,7 +1092,7 @@ export interface WebTrajectoryRecord {
     compressedTokens?: number;
 }
 
-export interface WebTrajectory {
+interface WebTrajectory {
     records: WebTrajectoryRecord[];
     turns: number;
     /** Chars actually included across record texts (post-cap). */
