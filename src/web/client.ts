@@ -1376,9 +1376,10 @@ export const WEB_CLIENT = `(function () {
         return html.join("");
     }
     window.bili_renderHandoffMd = renderHandoffMd;
+    const KIND_LABEL = { user: t("kind.user"), assistant: t("kind.assistant"), system: t("kind.system"), tool: t("kind.tool"), "tool-call": t("kind.tool-call"), "tool-result": t("kind.tool-result"), reasoning: t("kind.reasoning"), compacted: t("kind.compacted") };
     function trajPreview(text) {
         const s = String(text || "");
-        const nl = s.indexOf("\n");
+        const nl = s.indexOf("\\n");
         return nl >= 0 ? s.slice(0, nl) : s.slice(0, 160);
     }
     function buildDetailHtml(d) {
@@ -1710,9 +1711,9 @@ export const WEB_CLIENT = `(function () {
                 const sys = traj.system;
                 parts.push('<details class="traj-sys"><summary><span class="topic">' + t("det.traj_system") + (typeof sys.tokens === "number" ? ' · ~' + fmtW(sys.tokens) + " tok" : "") + '</span><span class="meta">' + timeAgo(sys.updatedAt) + "</span></summary>");
                 parts.push('<div class="body md">' + renderHandoffMd(sys.text || "") + (sys.truncated ? '<div class="dim small" style="margin-top:6px">' + t("det.traj_sys_truncated") + "</div>" : "") + "</div>");
-                parts.push('<details class="traj-tools"><summary>' + t("det.traj_tools", { n: (sys.toolNames || []).length }) + "</summary><div class=\"tool-chips\">");
+                parts.push('<details class="traj-tools"><summary>' + t("det.traj_tools", { n: (sys.toolNames || []).length }) + "</summary><div class=\\"tool-chips\\">");
                 for (const name of sys.toolNames || []) parts.push('<span class="chip">' + escapeHtml(name) + "</span>");
-                parts.push("</div><pre class=\"traj-json\">" + escapeHtml(sys.toolsJson || "") + (sys.toolsTruncated ? "\n…(truncated)" : "") + "</pre></details>");
+                parts.push("</div><pre class=\\"traj-json\\">" + escapeHtml(sys.toolsJson || "") + (sys.toolsTruncated ? "\\n…(truncated)" : "") + "</pre></details>");
                 parts.push("</details>");
             }
             for (const r of traj.records) {
@@ -1728,7 +1729,7 @@ export const WEB_CLIENT = `(function () {
                     if (r.compressedTokens) extra += " · ~" + fmtW(r.compressedTokens);
                     if (r.blockId) metaBits.push(escapeHtml(r.blockId));
                 }
-                parts.push('<details class="traj-row' + (r.kind === "compacted" ? " traj-fold" : "") + '"><summary><span class="traj-n">' + String(r.n) + '</span><span class="badge k-' + r.kind + '">' + escapeHtml(t("kind." + r.kind)) + '</span><span class="meta">' + metaBits.join(" · ") + extra + '</span><span class="traj-preview">' + escapeHtml(trajPreview(r.text)) + (r.truncated ? "…" : "") + "</span></summary><pre class=\"traj-text\">" + escapeHtml(r.text) + (r.truncated ? "\n\n…(truncated)" : "") + "</pre></details>");
+                parts.push('<details class="traj-row' + (r.kind === "compacted" ? " traj-fold" : "") + '"><summary><span class="traj-n">' + String(r.n) + '</span><span class="badge k-' + r.kind + '">' + escapeHtml(KIND_LABEL[r.kind] || r.kind) + '</span><span class="meta">' + metaBits.join(" · ") + extra + '</span><span class="traj-preview">' + escapeHtml(trajPreview(r.text)) + (r.truncated ? "…" : "") + "</span></summary><pre class=\\"traj-text\\">" + escapeHtml(r.text) + (r.truncated ? "\\n\\n…(truncated)" : "") + "</pre></details>");
             }
         }
         parts.push("</div></div>");
