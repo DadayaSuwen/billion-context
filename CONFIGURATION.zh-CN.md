@@ -116,7 +116,7 @@
 | `compat.streamErrorShape` | "protocol" \| "completion" | protocol | BILI_STREAM_ERROR_SHAPE | 200 已提交后上游流失败的呈现方式：协议原生错误帧（默认）或旧版合成完成形态。 |
 | `compat.noCacheControl` | boolean | false | BILI_NO_CACHE_CONTROL | 完全停止 Anthropic 通道的 cache_control 断点打标（面向拒收该字段或有自有断点策略的上游/中继的逃生门）。 |
 | `compat.keepResponseId` | boolean | false | ACP_KEEP_RESPONSE_ID | 在内核重建的 Responses 请求上保留 previous_response_id（默认剔除，使重建请求体永不引用上游从未签发过的响应 id）。 |
-| `dsh.allowDshCompaction` | *已移除* | — | — | **#3666 起移除**（取代 #2028）：该开关及其环境变量已不存在——bili 服务的全部线路上，dsh 原生压缩现在一律被 wire 级守卫（#1729）无条件拒绝。配置文件里遗留的 `"dsh": { "allowDshCompaction": … }` 取值（以及旧文件里裸写在顶层的 `"allowDshCompaction"`）会被忽略，并给出一条一次性弃用警告；若要彻底避免 dsh 侧 checkpoint 落地，请改用宿主侧抑制（#3354/#2474）。 |
+| `dsh` | object | {} | BILI_ALLOW_DSH_COMPACTION | 已移除的段（#3666，取代 #2028）：其唯一键 allowDshCompaction 与 BILI_ALLOW_DSH_COMPACTION 环境变量已不存在——dsh 原生压缩现在在所有线路上被无条件拒绝。遗留的 dsh.* 取值会被忽略（一次性弃用警告）；请改用宿主侧抑制（#3354/#2474）。 |
 | `resign` | scheme → { enabled?, passthrough?, credentialRef? } | {} (armed; built-in scheme sdk-hmac-sha256) | BILI_RESIGN, BILI_RESIGN_PASSTHROUGH, BILI_CODEARTS_REF, BILI_RESIGN_BENEFIT | 按 Authorization 方案键控的重签名臂：可重签名的模型请求全程重签转发；无法重签的请求本地 403 拒绝，除非该方案经 passthrough 选择原文透传。 |
 | `promptCache.routing` | "auto" \| "enabled" \| "disabled" | auto | ACP_PROMPT_CACHE_ROUTING | 面向缓存感知路由选择的提示词缓存路由姿态。 |
 | `native.attachExternal` | boolean | false | BILI_NATIVE_ATTACH_EXTERNAL | 允许无启动器的原生插件挂到外部（车道化、未武装看门狗）守护进程，而不是自行派生。 |
@@ -1704,7 +1704,7 @@ ACP 原生 agent（当前为 `pi` 扩展）会在每个进程内向代理上报�
 | `BILI_ADVISORY_CHECK` | `advisoryCheck` | true |
 | `BILI_ADVISORY_URL` | `advisoryUrl` | unset (built-in feed) |
 | `BILI_AFFINITY_SIMHASH` | `affinitySimhash` | true |
-| `BILI_ALLOW_DSH_COMPACTION` | *已移除（#3666）* | — |
+| `BILI_ALLOW_DSH_COMPACTION` | `dsh` | {} |
 | `BILI_ALLOW_PRIVATE_HTTP_PROVIDERS` | `network.allowPrivateHttpProviders` | false |
 | `BILI_AUTO_MODE_FORGE` | `autoModeForge.enabled` | true |
 | `BILI_CA_FILE` | `network.caFile` | unset |

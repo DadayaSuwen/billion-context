@@ -116,7 +116,7 @@ This index is generated from `website/config-reference/*.yaml` — edit the seed
 | `compat.streamErrorShape` | "protocol" \| "completion" | protocol | BILI_STREAM_ERROR_SHAPE | How upstream stream failures are presented after the 200 is committed: protocol-native error frames (default) or the legacy synthesized-completion shape. |
 | `compat.noCacheControl` | boolean | false | BILI_NO_CACHE_CONTROL | Stop stamping Anthropic-lane cache_control breakpoints entirely (escape hatch for upstreams/relays with their own breakpoint policy). |
 | `compat.keepResponseId` | boolean | false | ACP_KEEP_RESPONSE_ID | Preserve previous_response_id on kernel-rebuilt Responses requests (default strips it so rebuilt bodies never reference ids the upstream never issued). |
-| `dsh.allowDshCompaction` | *removed* | — | — | **REMOVED in #3666** (superseding #2028): the switch and its env var no longer exist — dsh native compaction is now refused unconditionally by the wire-level guard (#1729) on every lane bili serves. Leftover `"dsh": { "allowDshCompaction": … }` values (and a bare top-level `"allowDshCompaction"` in older files) are ignored with a one-time deprecation warning; to keep dsh-side checkpoints out entirely, apply host-side suppression instead (#3354/#2474). |
+| `dsh` | object | {} | BILI_ALLOW_DSH_COMPACTION | REMOVED section (#3666, superseding #2028): its only key allowDshCompaction and the BILI_ALLOW_DSH_COMPACTION env var no longer exist — dsh native compaction is now refused unconditionally by the wire guard on every lane. Any leftover dsh.* values are ignored with a one-time deprecation warning; apply host-side suppression instead (#3354/#2474). |
 | `resign` | scheme → { enabled?, passthrough?, credentialRef? } | {} (armed; built-in scheme sdk-hmac-sha256) | BILI_RESIGN, BILI_RESIGN_PASSTHROUGH, BILI_CODEARTS_REF, BILI_RESIGN_BENEFIT | Re-sign arm keyed by Authorization scheme: signed model requests tunnel with every egress body re-signed; unresignable requests are refused locally 403 unless passthrough opts that scheme into verbatim forwarding. |
 | `promptCache.routing` | "auto" \| "enabled" \| "disabled" | auto | ACP_PROMPT_CACHE_ROUTING | Prompt-cache routing posture for cache-aware lane selection. |
 | `native.attachExternal` | boolean | false | BILI_NATIVE_ATTACH_EXTERNAL | Let launcher-less native plugins attach to an external (lane'd, unarmed) daemon instead of spawning their own. |
@@ -1705,7 +1705,7 @@ File keys resolve only when the matching env var is unset. Defaults in parenthes
 | `BILI_ADVISORY_CHECK` | `advisoryCheck` | true |
 | `BILI_ADVISORY_URL` | `advisoryUrl` | unset (built-in feed) |
 | `BILI_AFFINITY_SIMHASH` | `affinitySimhash` | true |
-| `BILI_ALLOW_DSH_COMPACTION` | *removed (#3666)* | — |
+| `BILI_ALLOW_DSH_COMPACTION` | `dsh` | {} |
 | `BILI_ALLOW_PRIVATE_HTTP_PROVIDERS` | `network.allowPrivateHttpProviders` | false |
 | `BILI_AUTO_MODE_FORGE` | `autoModeForge.enabled` | true |
 | `BILI_CA_FILE` | `network.caFile` | unset |

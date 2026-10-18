@@ -892,7 +892,7 @@ export type ProxyOptions = {
  *  why no escape hatch remains. The section stays RECOGNIZED so existing files
  *  don't trip the unknown-key warning; any key found in it is ignored with a
  *  once-per-process deprecation note (warnRemovedDshAllowKey). */
-export type DshFileSettings = Record<string, unknown>;
+type DshFileSettings = Record<string, unknown>;
 
 /** The routing fields a provider entry can carry — exactly what
  *  {@link parseRouteEntry} consumes per route. When they sit on a non-URL key
@@ -2153,7 +2153,7 @@ export function configFileEpoch(): string {
 // key set like warnUnknownTopLevelKeys: loadConfigFile() runs on every read.
 let removedDshAllowKeySignature = "";
 let removedDshEnvWarned = false;
-export function warnRemovedDshAllowKey(obj: Record<string, unknown>): void {
+function warnRemovedDshAllowKey(obj: Record<string, unknown>): void {
     const hits: string[] = [];
     if (Object.prototype.hasOwnProperty.call(obj, "allowDshCompaction") && obj.allowDshCompaction !== null && obj.allowDshCompaction !== undefined) {
         hits.push('top-level "allowDshCompaction"');
