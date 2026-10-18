@@ -14,6 +14,13 @@
 // (auto:false); web profiles run their instance INSIDE an agent preset whose
 // nested rows no patch layer can address by id (#1772/#2360) — this module is
 // what reaches them.
+// #3662: the overlay lives in its OWN always-on entry (dsh-compaction-gate.ts)
+// rather than in bili-native — disabling or kill-switching bili-native must
+// leave the gate service alive so the presets fall back to STOCK dsh
+// compaction instead of pending forever (the old wiring bricked session
+// creation on exactly that path). The transform honors the process verdict
+// declared by bili-native's apply(); an absent declaration means bili-native
+// never ran and every row passes through stock.
 
 /** The two dsh packages whose backends must not instantiate while bili owns the lane. */
 const DSH_COMPACTION_BASIC_PACKAGE = "@deepseek-ai/dsh-compaction-basic";
@@ -24,10 +31,13 @@ const DSH_AGENT_PRESET_PACKAGE = "@deepseek-ai/dsh-agent-preset";
  *  dsh.bundle.patch.yml and the launcher overlay patch. A preset cannot
  *  register until this service is provided, so the middleware below is
  *  guaranteed registered before any protected preset resolves its config even
- *  when sibling imports finish out of order; if this module fails to load the
- *  presets stay pending (fail-safe: no unprotected start). Coexistence with
- *  the upstream plugin is safe: its service name differs and both overlays are
- *  idempotent (disabled:true twice = disabled:true). */
+ *  when sibling imports finish out of order. #3662: the provider is the
+ *  always-on gate entry (dsh-compaction-gate.ts), NOT bili-native — disabling
+ *  or kill-switching bili-native must keep the latch satisfiable so the
+ *  presets fall back to stock instead of pending forever; only disabling the
+ *  gate entry itself leaves them pending (see the bundle patch header).
+ *  Coexistence with the upstream plugin is safe: its service name differs and
+ *  both overlays are idempotent (disabled:true twice = disabled:true). */
 export const BILI_COMPACTION_DISABLE_SERVICE = "biliBasicCompactionPolicy";
 /** The four Web agent presets the overlay must reach (dsh-web-app roster;
  *  preset-minimal ships no compaction group today — the row is a no-op there
@@ -42,6 +52,31 @@ const DSH_WEB_PRESET_IDS = ["preset-standard", "preset-ptc", "preset-minimal", "
  *  here AND in both patch layers. */
 export function compactionDisablePatchRows(): string {
     return DSH_WEB_PRESET_IDS.map((id) => `- id: ${id}\n  inject: [${BILI_COMPACTION_DISABLE_SERVICE}]\n`).join("");
+}
+
+// #3662: process-level verdict between the two entries. They are SEPARATE
+// bundles in the dsh host (separate module instances — module state cannot
+// cross them), and globalThis is the only surface both share. bili-native's
+// apply() declares active once its plan says bili owns the lane; an ABSENT
+// declaration means bili-native never ran in this process (entry disabled,
+// kill-switched before the declaration, or its module failed to load) and the
+// transform leaves every row stock. Availability over fail-safe-brick: a dead
+// bili-native hands the lane back to stock dsh compaction, with the wire-level
+// refusal guard (#1729) as backstop.
+const DSH_COMPACTION_VERDICT_KEY = "__BILI_DSH_COMPACTION_VERDICT__";
+
+/** bili-native calls this from apply() when its plan keeps the lane owned. */
+export function declareDshCompactionActive(): void {
+    (globalThis as Record<string, unknown>)[DSH_COMPACTION_VERDICT_KEY] = "active";
+}
+
+export function isDshCompactionActive(): boolean {
+    return (globalThis as Record<string, unknown>)[DSH_COMPACTION_VERDICT_KEY] === "active";
+}
+
+/** Test hook: forget any declaration (back to "bili-native never ran"). */
+export function _resetDshCompactionVerdictForTest(): void {
+    delete (globalThis as Record<string, unknown>)[DSH_COMPACTION_VERDICT_KEY];
 }
 
 type PresetRow = { name?: unknown; group?: unknown; config?: unknown };
@@ -63,24 +98,28 @@ export function disableBasicCompaction(rows: readonly unknown[]): unknown[] {
     });
 }
 
-type CompactionDisableHost = {
+export type CompactionDisableHost = {
     on?: (event: string, listener: (raw: unknown, next: () => unknown) => unknown, options?: { global?: boolean }) => void;
     reflect?: { provide?: (name: string, value: unknown) => void } | undefined;
 };
 type MiddlewareSelf = { entry?: { options?: { name?: unknown } } | undefined };
 
-/** Register the load-time overlay + publish the gate. Must run during
- *  apply() — the provide happens AFTER the middleware registers so the inject
- *  gate can never be satisfied before the transform is live. Degradation is
- *  per-layer and fail-safe: no `on` → the host predates the internal/config
- *  hook, the wire-level refusal guard (#1729) stays the backstop; no
- *  `reflect.provide` → the presets simply never see the gate and boot as they
- *  did pre-#3354. */
+/** Register the load-time overlay + publish the gate. Runs from the always-on
+ *  gate entry's apply() (dsh-compaction-gate.ts, #3662) — NOT from bili-native,
+ *  whose disable/kill-switch must not take the service with it. The provide
+ *  happens AFTER the middleware registers so the inject gate can never be
+ *  satisfied before the transform is live. Degradation is per-layer and
+ *  fail-safe: no `on` → the host predates the internal/config hook, the
+ *  wire-level refusal guard (#1729) stays the backstop; no `reflect.provide`
+ *  → the presets simply never see the gate and boot as they did pre-#3354. */
 export function registerCompactionDisable(ctx: CompactionDisableHost): void {
     if (typeof ctx.on === "function") {
         // Preset entries must carry the gate: sibling imports may finish out of order.
         ctx.on("internal/config", function (this: MiddlewareSelf, _raw: unknown, next: () => unknown): unknown {
             const resolved = next();
+            // #3662: honor the process verdict — without an active declaration
+            // from bili-native every row passes through stock.
+            if (!isDshCompactionActive()) return resolved;
             if (this?.entry?.options?.name !== DSH_AGENT_PRESET_PACKAGE) return resolved;
             const config = (resolved ?? {}) as { plugins?: unknown };
             if (!Array.isArray(config.plugins)) return resolved;

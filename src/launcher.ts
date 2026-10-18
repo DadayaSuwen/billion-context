@@ -3109,9 +3109,14 @@ const DSH_BARE_ENTRY = "billion-context";
  *  `dsh.client` declaration the scanner reads plus two SYMLINKS into bili's
  *  live dist — an auto-update that moves dist self-heals on the next launch.
  *  Returns false when nothing was written (existing shims stay untouched). */
-export function writeDshClientShimFiles(shimDir: string, hostBundle: string, clientBundle: string, version: string): boolean {
+export function writeDshClientShimFiles(shimDir: string, hostBundle: string, clientBundle: string, version: string, gateBundle?: string): boolean {
     try {
         if (!fs.existsSync(hostBundle) || !fs.existsSync(clientBundle)) return false;
+        // #3662: the always-on gate entry rides the same shim (a dangling
+        // symlink would break its load, so it joins only when present).
+        const hasGate = gateBundle !== undefined && fs.existsSync(gateBundle);
+        const exportsMap: Record<string, string> = { ".": "./index.js", "./dsh": "./index.js", "./package.json": "./package.json", "./dsh/package.json": "./package.json", "./client": "./bundle.js" };
+        if (hasGate) exportsMap["./dsh-compaction-gate"] = "./gate.js";
         fs.rmSync(shimDir, { recursive: true, force: true });
         fs.mkdirSync(shimDir, { recursive: true });
         fs.writeFileSync(
@@ -3120,12 +3125,13 @@ export function writeDshClientShimFiles(shimDir: string, hostBundle: string, cli
                 name: "billion-context",
                 version,
                 type: "module",
-                exports: { ".": "./index.js", "./dsh": "./index.js", "./package.json": "./package.json", "./dsh/package.json": "./package.json", "./client": "./bundle.js" },
+                exports: exportsMap,
                 dsh: { client: { platform: "web" } },
             })}\n`,
         );
         fs.symlinkSync(hostBundle, path.join(shimDir, "index.js"));
         fs.symlinkSync(clientBundle, path.join(shimDir, "bundle.js"));
+        if (hasGate) fs.symlinkSync(gateBundle, path.join(shimDir, "gate.js"));
         return true;
     } catch {
         return false;
@@ -3143,7 +3149,7 @@ export function writeDshClientShim(dshHome: string): boolean {
     try {
         version = JSON.parse(fs.readFileSync(path.join(selfPackageRoot(), "package.json"), "utf8")).version ?? version;
     } catch {}
-    return writeDshClientShimFiles(path.join(dshHome, "node_modules", "billion-context"), hostBundle, clientBundle, version);
+    return writeDshClientShimFiles(path.join(dshHome, "node_modules", "billion-context"), hostBundle, clientBundle, version, selfDistFile("agent/dsh-compaction-gate.js"));
 }
 
 /** #1590: entry name for the launcher's --patch overlay. The BARE package
@@ -3169,6 +3175,11 @@ export function dshPluginEntry(dshHome: string): string {
 
 export function writeDshAcpPatch(dshHome: string, entryName?: string): string | undefined {
     const pluginUrl = entryName ?? pathToFileURL(selfDistFile("agent/dsh-native.js")).href;
+    // #3662: the gate entry mounts alongside bili-native in BOTH lanes (bare
+    // subpath through the shim; file URL otherwise) — dropping it would leave
+    // the preset inject rows below pending forever whenever bili-native does
+    // not run.
+    const gateUrl = pluginUrl === DSH_BARE_ENTRY ? `${DSH_BARE_ENTRY}/dsh-compaction-gate` : pathToFileURL(selfDistFile("agent/dsh-compaction-gate.js")).href;
     const dir = `${dshHome}-bili`;
     try {
         fs.mkdirSync(dir, { recursive: true });
@@ -3178,7 +3189,7 @@ export function writeDshAcpPatch(dshHome: string, entryName?: string): string | 
     writeOverlayFileAtomic(
         dir,
         ".bili-acp.patch.yml",
-        `- insert:\n    - id: bili-native\n      name: ${pluginUrl}\n- id: compaction-basic\n  config:\n    auto: false\n# #3354: keep in sync with dsh.bundle.patch.yml — web-profile presets run their own compaction-basic in nested rows no patch layer can address by id (#1772); these gates make them wait for the load-time overlay the injected plugin registers (vendored from deshark42/dsh-compaction-basic-disable, MIT)\n${compactionDisablePatchRows()}# #2605: keep in sync with dsh.bundle.patch.yml — a patch replaces the row's whole config, so every default code is restated\n- id: llm-deepseek\n  config:\n    retryPolicy:\n      mode: normal\n      retryableCodes: [EMPTY_RESPONSE, RATE_LIMIT, SERVER, TIMEOUT, TRANSPORT, MALFORMED_RESPONSE]\n- id: llm-deepseek-account\n  config:\n    retryPolicy:\n      mode: normal\n      retryableCodes: [EMPTY_RESPONSE, RATE_LIMIT, SERVER, TIMEOUT, TRANSPORT, MALFORMED_RESPONSE]\n`,
+        `- insert:\n    - id: bili-native\n      name: ${pluginUrl}\n    - id: bili-compaction-gate\n      name: ${gateUrl}\n- id: compaction-basic\n  config:\n    auto: false\n# #3354/#3662: keep in sync with dsh.bundle.patch.yml — web-profile presets run their own compaction-basic in nested rows no patch layer can address by id (#1772); these gates make them wait for the load-time overlay the always-on bili-compaction-gate entry registers (vendored from deshark42/dsh-compaction-basic-disable, MIT)\n${compactionDisablePatchRows()}# #2605: keep in sync with dsh.bundle.patch.yml — a patch replaces the row's whole config, so every default code is restated\n- id: llm-deepseek\n  config:\n    retryPolicy:\n      mode: normal\n      retryableCodes: [EMPTY_RESPONSE, RATE_LIMIT, SERVER, TIMEOUT, TRANSPORT, MALFORMED_RESPONSE]\n- id: llm-deepseek-account\n  config:\n    retryPolicy:\n      mode: normal\n      retryableCodes: [EMPTY_RESPONSE, RATE_LIMIT, SERVER, TIMEOUT, TRANSPORT, MALFORMED_RESPONSE]\n`,
     );
     const file = path.join(dir, ".bili-acp.patch.yml");
     try {

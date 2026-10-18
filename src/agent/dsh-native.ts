@@ -35,9 +35,13 @@
 //      truncated first user message. Both services are optional — older
 //      hosts degrade to the pre-#2604 labelless behavior, never block boot.
 // Native auto-compaction stands down on BOTH planes: the INSTALLER/LAUNCHER
-// patch file keeps the host-plane row at auto:false, and this module disables
-// the web-profile PRESET instances at load time (#3354, vendored from
-// deshark42/dsh-compaction-basic-disable — see dsh-compaction-disable.ts).
+// patch file keeps the host-plane row at auto:false, and the always-on
+// bili-compaction-gate entry (dsh-compaction-gate.ts) disables the web-profile
+// PRESET instances at load time (#3354, vendored from
+// deshark42/dsh-compaction-basic-disable — see dsh-compaction-disable.ts);
+// this module only DECLARES that the lane is owned, so a disabled or
+// kill-switched bili-native leaves the presets bootable with stock compaction
+// instead of pending on a service no one provides anymore (#3662).
 // dsh has no compaction event hook to observe a manual /compact, so its
 // boundary is left to the kernel's natural ingest diff (#395 gap, acceptable:
 // manual /compact is rare and auto mode is off).
@@ -56,7 +60,7 @@ import { installNativeFetchIntercept, liveStateSlotEffect, noteRoutedOrigin, obs
 import { asciiHeaderValue, fetchManifest, fetchProxyVersion, fetchStatus, fetchStatusLatest, forwardTool, reportAttributionHealth, reportRuntimeInfo, waitForProxyVersion, type ManifestTool } from "./shared.js";
 import { createForkAdopter, sideShapedBody } from "./fork-adopt.js";
 import { clearIncrementalProbe, createPrepareDirectSend, INCREMENTAL_TURN_MARKER_HEADER, INCREMENTAL_TURN_ID_HEADER, newIncrementalTurnId, noteIncrementalRejection, noteIncrementalAck, planIncrementalTurn, probeIncrementalTurns, rememberOriginalBody, sweepStale, type IncrementalWireMessage } from "./incremental-client.js";
-import { registerCompactionDisable } from "./dsh-compaction-disable.js";
+import { declareDshCompactionActive } from "./dsh-compaction-disable.js";
 export { sideShapedBody } from "./fork-adopt.js";
 
 export const name = "bili-native";
@@ -1250,12 +1254,14 @@ export function apply(ctx: PluginContext): void {
     // nothing: invalidating recoveries on a kill-switch could strand the lane.
     originGen += 1;
 
-    // #3354: stand dsh's native basic compaction down at LOAD TIME — reaches
-    // the web-profile preset instances no patch layer can address by id
-    // (#1772/#2360); the host plane already stands down via the bundle patch
-    // (auto:false). Gated on plan.mode: a kill-switched bili must hand the
-    // lane back to stock dsh behavior, so this runs only when bili is on.
-    registerCompactionDisable(ctx);
+    // #3354/#3662: declare that THIS process owns compression so the always-on
+    // gate entry's load-time overlay (#3354) actually disables the web-profile
+    // preset instances no patch layer can address by id (#1772/#2360). The
+    // declaration — not the registration — is what's gated on plan.mode: a
+    // kill-switched or disabled bili-native never declares, and the gate then
+    // leaves every row stock while its service still lets the presets boot
+    // (disabling the plugin must not brick session creation, #3662).
+    declareDshCompactionActive();
 
     // #2082: a fresh activation invalidates the "host tearing down" verdict.
     // Without this reset, ONE registerTools rejection carrying "inactive
@@ -1946,7 +1952,8 @@ export function apply(ctx: PluginContext): void {
     // compaction-basic instance sits inside an agent preset (preset-standard's
     // config.plugins) where no patch layer can address the NESTED row by id
     // (#1772/#2360). Since #3354 bili disables those preset rows at LOAD TIME
-    // (registerCompactionDisable above, vendored from
+    // (the always-on bili-compaction-gate entry, active while this module's
+    // verdict holds — #3662; vendored from
     // deshark42/dsh-compaction-basic-disable, MIT), so native auto-compaction
     // is off in these profiles too. The durable note confirms the stance and
     // keeps the #2474 full-snapshot recipe as the fallback for dsh builds

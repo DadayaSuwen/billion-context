@@ -8,6 +8,7 @@
     ".": "./dist/agent/dsh-native.js",
     "./server": "./dist/agent/opencode-native.js",
     "./dsh": "./dist/agent/dsh-native.js",
+    "./dsh-compaction-gate": "./dist/agent/dsh-compaction-gate.js",
     "./package.json": "./package.json",
     "./dsh/package.json": "./package.json",
     "./client": "./dist/agent/dsh-native-client.js"

@@ -33,6 +33,7 @@ const ENTRY_FILES = new Set([
     "src/agent/opencode-native.ts",
     "src/agent/dsh-acp.ts",
     "src/agent/dsh-native.ts",
+    "src/agent/dsh-compaction-gate.ts",
     "src/kimi/native-mcp.ts",
     "src/kimi/bootstrap-hook.ts",
     "src/zcode/mcp-entry.ts",
