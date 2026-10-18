@@ -146,8 +146,8 @@ export async function prepareGoogle(
         const loopConfig = ccrLoopConfig(session, { ...config, absorb: absorbActive ? absorbBlock : undefined });
         // #2432/#2658: same post-landing recovery as the openai/responses/
         // anthropic lanes — dsh desktop's native compaction can land without
-        // transiting bili (direct-bypass / allowDshCompaction / future gate
-        // mismatch); first notice = this request replaying [checkpoint summary,
+        // transiting bili (direct-bypass / future gate mismatch); first notice =
+        // this request replaying [checkpoint summary,
         // retained tail…] against the same session id. Before #2658 every lane
         // except openai/responses left such a landing unrebased (cannot-be-
         // anchored death spiral + prefix-cache loss). Dual signal only:

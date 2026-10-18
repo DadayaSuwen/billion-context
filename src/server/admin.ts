@@ -288,13 +288,6 @@ export async function handleAdminRoute(req: http.IncomingMessage, res: http.Serv
             }
             opts.passthrough = fresh.passthrough;
             opts.passthroughSource = fresh.passthroughSource;
-            if (fresh.allowDshCompaction !== opts.allowDshCompaction) {
-                log(
-                    fresh.allowDshCompaction ? "warn" : "info",
-                    `[dsh-compaction] ${fresh.allowDshCompaction ? "dsh native compaction ALLOWED via web config — landed checkpoints durably shadow the raw history (#2028)" : "dsh native compaction interception restored via web config (#2028)"}`,
-                );
-            }
-            opts.allowDshCompaction = fresh.allowDshCompaction;
             opts.proxy = fresh.proxy;
             opts.proxyMode = fresh.proxyMode;
             opts.proxySource = fresh.proxySource;

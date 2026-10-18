@@ -402,11 +402,12 @@ async function handleRequest(
         // gate refuses it INTO this lane — and a verbatim relay below the #1835
         // pipeline guard is exactly how 4/49 compaction calls landed in the field
         // report (45 were refused through the pipeline). Same refusal, applied at
-        // this lane too: marker-decisive (#2193), honors allowDshCompaction
-        // (#2028), fail-open on undecodable bodies (#1835 failure direction —
-        // relay verbatim, today's behavior). The check decodes only a COPY: the
-        // relay still forwards the original bytes with content-encoding intact.
-        if (protocol !== null && req.method === "POST" && bodyBuffer.length > 0 && opts.allowDshCompaction !== true
+        // this lane too: marker-decisive (#2193), unconditional (#3651 removed
+        // the #2028 opt-out), fail-open on undecodable bodies (#1835 failure
+        // direction — relay verbatim, today's behavior). The check decodes only
+        // a COPY: the relay still forwards the original bytes with content-
+        // encoding intact.
+        if (protocol !== null && req.method === "POST" && bodyBuffer.length > 0
             && await detectPassthroughDshCompactionCall(protocol, bodyBuffer, headerValue(req, "content-encoding"), async (enc, buf) => (await decodeRequestBody(enc, buf, knobLimitsDecodedBytes(), { signal: decodingSignal, onBytes: (bytes) => admission.observe(bytes) })).body)) {
             dshPassthroughGuardStats.refusals += 1;
             log("warn", `[passthrough] dsh native compaction call identified on the unattributed passthrough lane (#1117/#2709) — REFUSED, not forwarded: bili owns compression on this lane; a landed dsh checkpoint would durably shadow the raw history (#1729, cf. #1772/#1206). No session exists on this lane, so this log line (not the #2490 ledger) is the record; passthrough refusals so far: ${dshPassthroughGuardStats.refusals}`);
@@ -1834,24 +1835,24 @@ async function handleRequest(
         // and destroy the compression substrate. Protocol coverage (#2360):
         // openai + anthropic + responses lanes are all marker-decisive — the
         // pre-#2360 whitelist short-circuited responses (dsh desktop's actual
-        // wire) before the marker was ever examined. Active by default, explicitly
-        // opt-out-able (#2028) — auto pressure, overflow recovery, and manual
-        // /compact share one envelope, and a landed checkpoint durably shadows
-        // the raw history (irreversible), while every cost of refusing is
-        // dsh-side, caught, and recoverable; allowDshCompaction lifts the
-        // refusal for users who accept that trade. Runs before the #388
+        // wire) before the marker was ever examined. Unconditional (#3651
+        // removed the #2028 opt-out) — auto pressure, overflow recovery, and
+        // manual /compact share one envelope, and a landed checkpoint durably
+        // shadows the raw history (irreversible), while every cost of refusing
+        // is dsh-side, caught, and recoverable. Runs before the #388
         // side-request lane: the compaction call is a full-budget request, so
         // only this guard can catch it.
-        if (protocol !== null && opts.allowDshCompaction !== true && isDshCompactionCall(protocol, parsed)) {
+        if (protocol !== null && isDshCompactionCall(protocol, parsed)) {
             // #3733: AUTHORED compaction — when the knob is on and the session
             // holds active fold blocks, answer the call LOCALLY with our folded
             // snapshot instead of refusing: zero egress (autoModeForge #2740
             // discipline), dsh records our tagged checkpoint and its file shrinks
             // (#3723), and the recorded content is exactly what the upstream
-            // already sees. Replaces the DEFAULT refusal only — an explicit
-            // allowDshCompaction (checked above) still forwards natively, because
-            // that is the user asking for dsh's own behavior. Undecidable shapes
-            // (null forge) fall through to the refusal below.
+            // already sees. Replaces the default refusal only — since #3651
+            // removed the #2028 opt-out there is no native-forward path left:
+            // an authored answer is bili answering the call, never passing it
+            // through. Undecidable shapes (null forge) fall through to the
+            // refusal below.
             const authored = dshAuthoredCompactionEnabled() && session.state.blocks.some((b) => b.active)
                 ? buildDshCompactionForgeBody(protocol as "openai" | "anthropic" | "responses", renderDshAuthoredCheckpoint(session), { inputTokens: Math.max(1, Math.round(inboundBytes / 4)), outputTokens: 0 }, (parsed as { stream?: unknown }).stream === true)
                 : null;

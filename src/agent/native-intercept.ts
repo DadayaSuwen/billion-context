@@ -1151,9 +1151,9 @@ export function installNativeFetchIntercept(initialState: NativeInterceptState):
                 // marker-sniffed POSTs into the proxy's unattributed passthrough
                 // lane (same stamp the overlay-routed case above uses), where the
                 // #2709 guard runs the decisive check: refused (422; dsh logs
-                // "step compaction failed" and continues the turn) or, with
-                // allowDshCompaction (#2028), relayed verbatim by explicit user
-                // decision. Everything else — plain traffic, stream bodies that
+                // "step compaction failed" and continues the turn) — the former
+                // allowDshCompaction opt-out was removed (#3666), so the refusal
+                // is unconditional. Everything else — plain traffic, stream bodies that
                 // cannot be peeked, a dead proxy — keeps #1117's direct semantics.
                 if (fetchMethodOf(input, init) === "POST" && await dshCompactionMarkerInBody(input, init)) {
                     const compactionOrigin = await readyOrigin(state);

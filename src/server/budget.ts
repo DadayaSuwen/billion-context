@@ -309,9 +309,10 @@ export function clampOutputBudget(requested: number, inputEstimate: number, nati
  *  raw ledger only grows (refused checkpoints never land), so the max bounds
  *  every future re-send; decaying the floor would re-open the #2490 kill
  *  chain. Lifetime ends with the session (metadata eviction). Known
- *  conservative residue: flipping allowDshCompaction on mid-session lets
- *  checkpoints land and shrink the ledger, but the floor stays at its old
- *  high until eviction — fail-closed over-tightening, accepted.
+  *  conservative residue: if a checkpoint lands anyway (direct-bypass path;
+  *  the #2028 opt-out was removed, #3666) and shrinks the ledger, the floor
+  *  stays at its old high until eviction — fail-closed over-tightening,
+  *  accepted.
  *  Note (#3384): recording stays sticky; what changed is APPLICATION — the
  *  clamp gates where this floor may drive planning (see clampOutgoingOutput),
  *  so a stale high-water mark can no longer starve a healthy session. */

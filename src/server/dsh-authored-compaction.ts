@@ -22,11 +22,11 @@
 // of the landing for ANY checkpoint, authored or foreign.
 //
 // Precedence at the guard site: authored (this module, knob + active blocks)
-// replaces the DEFAULT refusal only — an explicit allowDshCompaction
-// forward-native choice still wins over authoring, because that is the user
-// asking for dsh's own behavior. The passthrough-lane copy of the guard
-// (handle.ts #1117/#2709 site) has no session and therefore no snapshot to
-// author; it keeps refusing.
+// replaces the default refusal. Since #3651 removed the #2028 allowDshCompaction
+// opt-out there is no forward-native path left to take precedence — calls that
+// do not qualify for authoring fall through to the refusal below. The
+// passthrough-lane copy of the guard (handle.ts #1117/#2709 site) has no
+// session and therefore no snapshot to author; it keeps refusing.
 import { renderForgedSummary, buildPromptForgeBody } from "../codex-compact.js";
 
 /** Identity header prefix of an authored checkpoint. Angle brackets

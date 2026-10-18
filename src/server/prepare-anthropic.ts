@@ -259,7 +259,7 @@ export async function prepareAnthropic(
         // the same session id. The openai/responses lanes rebase on that
         // signature (#2432/#2451); this lane had the server-side REFUSAL gate
         // but not the post-landing recovery, so any checkpoint landing here
-        // (direct bypass, allowDshCompaction, future gate mismatch) left the ACP
+        // (direct bypass, future gate mismatch) left the ACP
         // state permanently unrebased — the cannot-be-anchored death spiral plus
         // persistent prefix-cache loss (#2596). Same signature+rebase as the
         // twin lanes: detection runs BEFORE reconcileFoldCoverage/processTurn;

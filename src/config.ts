@@ -882,37 +882,17 @@ export type ProxyOptions = {
      *  prefix cache when instruction files (AGENTS.md & co.) change mid-
      *  session. Default OFF; enable with env BILI_STABLE_SYSTEM_ANCHOR=1 or
      *  `stableSystemAnchor: true` in the config file (env wins). */
-    stableSystemAnchor?: boolean;
-    /** #2028: opt-in to letting dsh's built-in auto-compaction (compaction-basic)
-     *  run through bili instead of being refused by the #1729 wire guard.
-     *  Default OFF (= guard active): dsh compaction envelopes (final user
-     *  message = COMPACTION_INSTRUCTION template, ≤4 messages) are refused
-     *  locally with 422 — bili owns compression on that lane. When ON the
-     *  call is forwarded and may LAND: a landed checkpoint durably shadows
-     *  the raw history (irreversible) and destroys bili's compression
-     *  substrate, which is why this stays off by default. On non-web
-     *  profiles the shipped bundle patch (`auto: false`) still suppresses
-     *  AUTO-triggering — only manual /compact benefits there; on web
-     *  profiles the preset-nested instance is not reachable by id from any
-     *  bundle patch (#1772), but a profile-layer full-snapshot override of
-     *  preset-standard can switch it off (#2474); absent that,
-     *  auto-triggering works as-is. Enable with
-     *  `{ "dsh": { "allowDshCompaction": true } }` in the config file, or env
-     *  BILI_ALLOW_DSH_COMPACTION=1. */
-    allowDshCompaction?: boolean;
-};
+     stableSystemAnchor?: boolean;
+ };
 
-/** #2028: dsh client-lane settings namespace — home for dsh-specific file
- *  config so future dsh keys have a section instead of cluttering the root.
-
- *  The field below USED to sit at the top level (`"allowDshCompaction": true`) in pre-review drafts;
- *  a top-level value in an existing file is auto-relocated here on load
- *  (normalizeLegacyAllowDshCompaction) rather than dropped (§7.3).
- */
-export interface DshFileSettings {
-    /** Enable with `{ "dsh": { "allowDshCompaction": true } }`; full behavior contract on the FileConfig side. */
-    allowDshCompaction?: boolean;
-}
+/** #2028/#3651: dsh client-lane settings namespace. Its only key,
+ *  `allowDshCompaction`, was REMOVED (#3651) — dsh native compaction is now
+ *  refused unconditionally by the #1729 wire guard on every lane, and a
+ *  landed checkpoint durably shadows the raw history (irreversible), which is
+ *  why no escape hatch remains. The section stays RECOGNIZED so existing files
+ *  don't trip the unknown-key warning; any key found in it is ignored with a
+ *  once-per-process deprecation note (warnRemovedDshAllowKey). */
+export type DshFileSettings = Record<string, unknown>;
 
 /** The routing fields a provider entry can carry — exactly what
  *  {@link parseRouteEntry} consumes per route. When they sit on a non-URL key
@@ -1168,15 +1148,6 @@ export function passthroughState(env: NodeJS.ProcessEnv): { enabled: boolean; so
     return { enabled: filePassthrough, source: filePassthrough ? "file" : null };
 }
 
-// #2028: resolved dsh-native-compaction opt-in state shared by loadOptions and
-// the web config API (single source of truth — the GET handler must not
-// re-derive it). Same "0-off" env semantics as the loadOptions line.
-export function allowDshCompactionState(env: NodeJS.ProcessEnv): { enabled: boolean; source: "env" | "file" | null } {
-    const fileAllow = loadConfigFile().dsh?.allowDshCompaction === true;
-    if (env.BILI_ALLOW_DSH_COMPACTION !== undefined) return { enabled: env.BILI_ALLOW_DSH_COMPACTION !== "0", source: "env" };
-    return { enabled: fileAllow, source: fileAllow ? "file" : null };
-}
-
 // #1359: provider/model absorb.* overrides apply only to the proxy lane (plugin
 // lane follows the base block). Warn once per load so the divergence isn't silent.
 const ABSORB_DIVERGENCE_FIELDS = ["enabled", "toolName", "minToolTokens", "contextThresholdPct", "excludeTools", "mediaOnly"] as const;
@@ -1309,6 +1280,13 @@ export function loadOptions(env: NodeJS.ProcessEnv = process.env): ProxyOptions 
     // The canonical, user-editable config. Loaded first so env vars below can
     // override it (env wins for environment-specific overrides).
     const fileConfig = loadConfigFile();
+
+    // #3651: BILI_ALLOW_DSH_COMPACTION no longer exists — surface a stale value
+    // once instead of silently ignoring it (§7.3 honest output).
+    if (env.BILI_ALLOW_DSH_COMPACTION !== undefined && !removedDshEnvWarned) {
+        removedDshEnvWarned = true;
+        loggerLog("warn", "[acp-config] env BILI_ALLOW_DSH_COMPACTION was removed (#3651, superseding #2028) — ignored; dsh native compaction is now refused unconditionally by the wire guard");
+    }
 
     // --- Source 2: env vars (highest priority) ---
     const port = parseInt(env.ACP_PORT ?? env.PORT ?? `${fileConfig.port ?? 8787}`, 10);
@@ -1462,9 +1440,6 @@ export function loadOptions(env: NodeJS.ProcessEnv = process.env): ProxyOptions 
         chainContentDetection: (env.BILI_CHAIN_CONTENT ?? (fileConfig.chainContentDetection === true ? "1" : "0")) !== "0",
         chainEgressStamp: (env.BILI_CHAIN_STAMP ?? (fileConfig.chainEgressStamp === true ? "1" : "0")) !== "0",
         stableSystemAnchor: (env.BILI_STABLE_SYSTEM_ANCHOR ?? (fileConfig.stableSystemAnchor === true ? "1" : "0")) !== "0",
-        // #2028: default OFF keeps the #1729 wire refusal unconditional unless
-        // explicitly opted out — see the Options.allowDshCompaction docstring.
-        allowDshCompaction: (env.BILI_ALLOW_DSH_COMPACTION ?? (fileConfig.dsh?.allowDshCompaction === true ? "1" : "0")) !== "0",
     };
 }
 
@@ -1701,11 +1676,11 @@ type FileConfig = {
     /** Set `true` to enable the sticky head-system anchor (#1085, default
      *  OFF; env BILI_STABLE_SYSTEM_ANCHOR wins). */
     stableSystemAnchor?: boolean;
-    /** dsh client-lane settings (#2028) — nested under `dsh.*` so future dsh keys
-     *  get a home instead of cluttering the root; see {@link DshFileSettings}. A
-     *  legacy bare top-level `"allowDshCompaction"` value is auto-relocated onto
-     *  `dsh.allowDshCompaction` on load/save (normalizeLegacyAllowDshCompaction).
-     *  Env BILI_ALLOW_DSH_COMPACTION still wins over the file. */
+    /** dsh client-lane settings — its only key, `allowDshCompaction`, was
+      *  removed (#3651): dsh native compaction is now refused unconditionally
+      *  by the #1729 wire guard. The section stays recognized so old files
+      *  don't trip the unknown-key warning; any key in it is ignored with a
+      *  deprecation note (warnRemovedDshAllowKey). */
     dsh?: DshFileSettings;
     /** Global wire-compat block. `roles` maps message roles to the role name
      *  upstreams accept (e.g. `{"developer":"system"}`) — applied to the
@@ -2053,7 +2028,9 @@ const COMPRESS_SETTING_FIELDS = new Set([
 const seenUnknownTopLevelKeySignatures = new Set<string>();
 
 export function warnUnknownTopLevelKeys(obj: Record<string, unknown>): void {
-    const unknown = Object.keys(obj).filter((key) => !KNOWN_TOP_LEVEL_KEYS.has(key));
+    // #3651: the removed top-level allowDshCompaction key gets its own deprecation
+    // note (warnRemovedDshAllowKey) — exclude it here so it isn't named twice.
+    const unknown = Object.keys(obj).filter((key) => !KNOWN_TOP_LEVEL_KEYS.has(key) && key !== "allowDshCompaction");
     if (unknown.length === 0) return;
     const signature = [...unknown].sort().join("\u0000");
     if (seenUnknownTopLevelKeySignatures.has(signature)) return;
@@ -2123,7 +2100,7 @@ export function loadConfigFile(): FileConfig {
         const parsed: unknown = parseBiliConfig(raw);
         if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
             const obj = parsed as Record<string, unknown>;
-            normalizeLegacyAllowDshCompaction(obj);
+            warnRemovedDshAllowKey(obj);
             warnUnknownTopLevelKeys(obj);
             warnInertResignPassthrough(obj);
             warnInertStripImages(obj);
@@ -2168,27 +2145,28 @@ export function configFileEpoch(): string {
 }
 
 
-// #2028 relocation: a bare top-level allowDshCompaction predates the dsh.*
-// section (it never shipped beyond preview builds, but hand-saved files may
-// carry it) — carry the value into dsh.allowDshCompaction instead of letting
-// the loader drop it silently (§7.3 never-silently-clobber). A null/missing
-// value is a clear intent (dropped quietly); anything non-boolean is left in
-// place so the unknown-top-level-key warning still names it.
-let warnedLegacyDshConflict = false;
-export function normalizeLegacyAllowDshCompaction(obj: Record<string, unknown>): void {
-    if (!Object.prototype.hasOwnProperty.call(obj, "allowDshCompaction")) return;
-    const legacy = obj.allowDshCompaction;
-    if (legacy === null || legacy === undefined) { delete obj.allowDshCompaction; return; }
-    if (typeof legacy !== "boolean") return;
-    delete obj.allowDshCompaction;
-    const d = obj.dsh;
-    const dObj = d !== null && typeof d === "object" && !Array.isArray(d) ? (d as Record<string, unknown>) : undefined;
-    if (dObj === undefined) { obj.dsh = { allowDshCompaction: legacy }; return; }
-    if (dObj.allowDshCompaction === undefined) { dObj.allowDshCompaction = legacy; return; }
-    if (!warnedLegacyDshConflict) {
-        warnedLegacyDshConflict = true;
-        loggerLog("warn", "[acp-config] both top-level \"allowDshCompaction\" and \"dsh.allowDshCompaction\" present — the dsh.* value wins, the top-level one is dropped");
+// #3651: the allowDshCompaction escape hatch (#2028) is GONE — dsh native
+// compaction is refused unconditionally on every lane by the #1729 wire guard.
+// Old values may still sit in config files (top-level legacy position or
+// dsh.*); they are IGNORED — never relocated or rewritten (§7.3) — and named
+// once per distinct shape so the user knows why they do nothing. Deduped per
+// key set like warnUnknownTopLevelKeys: loadConfigFile() runs on every read.
+let removedDshAllowKeySignature = "";
+let removedDshEnvWarned = false;
+export function warnRemovedDshAllowKey(obj: Record<string, unknown>): void {
+    const hits: string[] = [];
+    if (Object.prototype.hasOwnProperty.call(obj, "allowDshCompaction") && obj.allowDshCompaction !== null && obj.allowDshCompaction !== undefined) {
+        hits.push('top-level "allowDshCompaction"');
     }
+    const d = obj.dsh;
+    if (d !== null && typeof d === "object" && !Array.isArray(d)) {
+        for (const key of Object.keys(d as Record<string, unknown>)) hits.push(`dsh.${key}`);
+    }
+    hits.sort();
+    const sig = hits.join(",");
+    if (sig === "" || sig === removedDshAllowKeySignature) return;
+    removedDshAllowKeySignature = sig;
+    loggerLog("warn", `[acp-config] ${hits.join(", ")} was removed (#3651, superseding #2028) — value(s) ignored: dsh native compaction is now refused unconditionally by the wire guard on every lane. Delete it from your config to silence this.`);
 }
 /** File shape of ONE scheme's `resign` block (see FileConfig.resign). */
 interface ResignFileSettings {

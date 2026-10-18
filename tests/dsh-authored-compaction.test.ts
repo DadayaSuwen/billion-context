@@ -287,7 +287,7 @@ async function withHarness(fn: (h: Harness) => Promise<void>, optsOverride: Part
         upstream.closeIdleConnections?.();
         await once(upstream, "close");
         delete process.env.BILI_DSH_AUTHORED_COMPACTION;
-        delete process.env.BILI_ALLOW_DSH_COMPACTION;
+
     }
 }
 
@@ -368,19 +368,21 @@ test("e2e: no active blocks → authored mode falls through to refusal", async (
     });
 });
 
-test("e2e: explicit allowDshCompaction wins over authored mode (user asked for native)", async () => {
-    const allowNative: (h: Harness) => Promise<void> = async (h) => {
+test("e2e: a stale allowDshCompaction=true no longer lifts the guard — authored mode answers (#3666)", async () => {
+    const staleOptIn: (h: Harness) => Promise<void> = async (h) => {
         await armBlock(h, "s-allow");
         process.env.BILI_DSH_AUTHORED_COMPACTION = "1";
         const r = await turn(h, "s-allow", [
             { role: "user", content: `${DSH_COMPACTION_INSTRUCTION_PREFIX} Condense.` },
         ]);
         assert.equal(r.status, 200, r.body);
-        assert.ok(h.bodies.some((b) => b.includes(DSH_COMPACTION_INSTRUCTION_PREFIX)), "forwarded natively");
+        assert.equal(h.bodies.filter((b) => b.includes(DSH_COMPACTION_INSTRUCTION_PREFIX)).length, 0, "never forwarded — the removed knob no longer lifts the guard");
         const s = h.sessionOf("s-allow")!;
-        assert.equal(s.metadata["dshAuthoredCompactions"], undefined, "not authored");
+        assert.equal(s.metadata["dshAuthoredCompactions"], 1, "authored answer stands over the stale value");
     };
-    await withHarness(allowNative, { allowDshCompaction: true } as Partial<ProxyOptions>);
+    // The key no longer exists on ProxyOptions (#3666); the cast simulates a
+    // stale value reaching options, which the proxy must ignore.
+    await withHarness(staleOptIn, { allowDshCompaction: true } as unknown as Partial<ProxyOptions>);
 });
 
 test("e2e: landed checkpoint is recognized on replay — rebase + authored-landed mark", async () => {
@@ -545,6 +547,6 @@ test("e2e: responses wire — authored answer + landed checkpoint recognized on 
         upstream.closeIdleConnections?.();
         await once(upstream, "close");
         delete process.env.BILI_DSH_AUTHORED_COMPACTION;
-        delete process.env.BILI_ALLOW_DSH_COMPACTION;
+
     }
 });

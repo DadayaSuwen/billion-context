@@ -149,7 +149,7 @@ function resolveInternal(feature: string, ctx: RolloutCtx, visited: Set<string>)
     });
 
     // Tier 1: env force. "0"/"false" = off, anything else set = on (same
-    // family as BILI_PERSIST / BILI_ALLOW_DSH_COMPACTION).
+    // family as BILI_PERSIST / ACP_PASSTHROUGH).
     const envRaw = env[rolloutEnvName(feature)];
     if (envRaw !== undefined) return decided(envRaw !== "0" && envRaw !== "false", "env");
 
