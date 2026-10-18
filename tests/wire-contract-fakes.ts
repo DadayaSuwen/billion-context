@@ -30,6 +30,15 @@ interface WireRule {
 
 export const WIRE_RULES: readonly WireRule[] = [
     {
+        id: "WC-022",
+        wire: "anthropic",
+        lane: "anthropic-threads",
+        summary:
+            "on the Anthropic Threads API a full-history `create` rejects with 400 'messages.N: role \"system\" must precede an \"assistant\" message or end the array' when any `system` message is NOT followed later by an `assistant` message and does not end the array — CC 2.1.299 sends a mid-conversation `system` each turn and model replies live server-side in the Thread, so bili's reforge rebuild must include the captured assistant replies between client turns (an assistant-blind mirror rebuilds `user system user system …`, which is exactly the rejected shape)",
+        provenance:
+            "bili #3744 production 400 (Claude Desktop embedded CC 2.1.299, subscription OAuth, bili v0.1.201, opt-in BILI_ROLLOUT_ANTHROPIC_THREADS_REFORGE=1): the reforged create 400'd with 'messages.2: role \"system\" must precede an \"assistant\" message or end the array'; the reporter's mirror dump showed user 184 / system 184 / assistant 182 with tail `usausausa…usausus`. Lane-scoped: enforcement lives in the lane's own fake upstream (tests/threads-lane.test.ts, which 400s violating creates using firstAnthropicThreadsPlacementViolation exported below, pinned both directions), not the shared anthropic VALIDATOR — the classic /v1/messages lane never builds these arrays.",
+    },
+    {
         id: "WC-017",
         wire: "responses",
         lane: "codex",
