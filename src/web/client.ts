@@ -747,7 +747,7 @@ export const WEB_CLIENT = `(function () {
         const urEl = $("unrouted-banner");
         if (urEl) {
             const ur = d.unrouted;
-            const flat: string[] = [];
+            const flat = [];
             if (ur && typeof ur === "object") {
                 for (const list of Object.values(ur)) {
                     if (Array.isArray(list)) for (const p of list) if (typeof p === "string" && p.length > 0) flat.push(p);
