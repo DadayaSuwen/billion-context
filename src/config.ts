@@ -1677,10 +1677,10 @@ type FileConfig = {
      *  OFF; env BILI_STABLE_SYSTEM_ANCHOR wins). */
     stableSystemAnchor?: boolean;
     /** dsh client-lane settings — its only key, `allowDshCompaction`, was
-      *  removed (#3651): dsh native compaction is now refused unconditionally
-      *  by the #1729 wire guard. The section stays recognized so old files
-      *  don't trip the unknown-key warning; any key in it is ignored with a
-      *  deprecation note (warnRemovedDshAllowKey). */
+     *  removed (#3651): dsh native compaction is now refused unconditionally
+     *  by the #1729 wire guard. The section stays recognized so old files
+     *  don't trip the unknown-key warning; any key in it is ignored with a
+     *  deprecation note (warnRemovedDshAllowKey). */
     dsh?: DshFileSettings;
     /** Global wire-compat block. `roles` maps message roles to the role name
      *  upstreams accept (e.g. `{"developer":"system"}`) — applied to the
