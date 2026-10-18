@@ -128,6 +128,14 @@ const SIDE_CALL_ONE_SHOT_HEADERS = new Set([
 /** Non-streaming replies are buffered whole for the mirror, capped so a
  *  runaway body cannot turn the observer into a media store. */
 const JSON_CAPTURE_BYTE_CAP = 8_000_000;
+/** A completed reply whose blocks were all un-replayable (thinking /
+ *  redacted_thinking only, or an abort mid-thinking) still occupies an
+ *  assistant slot in the server-side thread. The mirror records it as this
+ *  self-describing block so every later reforged create satisfies the
+ *  system-placement rule (a mid-conversation `system` must be followed by an
+ *  `assistant` message or end the array) instead of 400-ing on a permanent
+ *  ordering gap (#3744 review of #3746). */
+const EMPTY_REPLY_PLACEHOLDER = { type: "text", text: "[threads-lane] model reply carried no replayable content (thinking-only or aborted)" };
 
 const SUMMARIZER_SYSTEM = [
     "You are compressing an older slice of a coding-agent conversation so it can be replaced by your summary.",
@@ -378,6 +386,7 @@ export function observeThreadsAssistantReply(
             } finally {
                 try { await reader.cancel(); } catch { /* already closed/released */ }
             }
+            buf += decoder.decode(); // flush a trailing multi-byte character split across the final chunk
             let content: unknown[] | null;
             if (sse) {
                 content = [];
@@ -393,17 +402,29 @@ export function observeThreadsAssistantReply(
                         content.push({ type: "tool_use", id: acc.id ?? "", name: acc.name ?? "", input });
                     }
                 }
-                if (!sawEvent || content.length === 0) content = null;
+                // sawEvent distinguishes "the reply existed but nothing
+                // replayable survived the filter" (placeholder — see
+                // EMPTY_REPLY_PLACEHOLDER) from "we observed nothing at all"
+                // (honest skip: an abort before the first event proves no
+                // reply bytes reached us).
+                if (!sawEvent) {
+                    content = null;
+                } else if (content.length === 0) {
+                    content = [EMPTY_REPLY_PLACEHOLDER];
+                }
             } else {
                 try {
                     const json = JSON.parse(buf) as { content?: unknown };
-                    const arr = Array.isArray(json.content) ? json.content : [];
-                    content = arr.filter((b) => {
-                        if (typeof b !== "object" || b === null) return false;
-                        const t = (b as { type?: unknown }).type;
-                        return t === "text" || t === "tool_use";
-                    }) as unknown[];
-                    if (content.length === 0) content = null;
+                    if (!Array.isArray(json.content)) {
+                        content = null; // not a well-formed reply body — record nothing
+                    } else {
+                        content = json.content.filter((b) => {
+                            if (typeof b !== "object" || b === null) return false;
+                            const t = (b as { type?: unknown }).type;
+                            return t === "text" || t === "tool_use";
+                        }) as unknown[];
+                        if (content.length === 0) content = [EMPTY_REPLY_PLACEHOLDER];
+                    }
                 } catch {
                     content = null;
                 }

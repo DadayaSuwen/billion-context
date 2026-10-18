@@ -727,6 +727,26 @@ export function vertexErrorEnvelope(streaming: boolean, message: string): { stat
     return { status: 400, body: streaming ? JSON.stringify([err]) : JSON.stringify(err) };
 }
 
+/** WC-022, lane-scoped (anthropic-threads): index of the first placement violation — a `system`
+ *  message is only legal when some LATER message has role `assistant`, or it ends the array.
+ *  Returns -1 when the array satisfies the rule. Shared by the lane's fake upstream
+ *  (tests/threads-lane.test.ts) and the ledger gate below. */
+export function firstAnthropicThreadsPlacementViolation(messages: unknown[]): number {
+    for (let i = 0; i < messages.length; i++) {
+        if ((messages[i] as { role?: unknown } | null)?.role !== "system") continue;
+        const followedByAssistant = messages.slice(i + 1).some((m) => (m as { role?: unknown } | null)?.role === "assistant");
+        if (!followedByAssistant && i !== messages.length - 1) return i;
+    }
+    return -1;
+}
+
+/** WC-022: validate a threads `create` message array against the production placement rule. */
+export function validateAnthropicThreadsCreate(messages: unknown): string[] {
+    if (!Array.isArray(messages)) return [];
+    const at = firstAnthropicThreadsPlacementViolation(messages);
+    return at >= 0 ? [`WC-022 messages.${at}: role 'system' must precede an 'assistant' message or end the array`] : [];
+}
+
 const PATH_MATCHERS: Record<Wire, (url: string) => boolean> = {
     anthropic: (u) => u.startsWith("/v1/messages"),
     "openai-chat": (u) => u.startsWith("/v1/chat/completions"),

@@ -28,6 +28,7 @@ import { _resetSessionsForTest } from "../src/session.js";
 import { _resetPluginStateForTest } from "../src/plugin.js";
 import { resetToolRingForTest } from "../src/tool-ring.js";
 import { __awaitThreadsCapturesForTests, __resetThreadsLaneForTests, type ThreadsMirrorMeta } from "../src/server/threads-lane.js";
+import { firstAnthropicThreadsPlacementViolation } from "./wire-contract-fakes.ts";
 
 const testRoot = mkdtempSync(path.join(os.tmpdir(), "bili-threads-lane-"));
 
@@ -61,6 +62,9 @@ interface HarnessOpts {
     /** Streamed replies carry a text block AND a tool_use block (input JSON
      *  split across two deltas), exercising the SSE reassembly (#3744). */
     streamToolUse?: boolean;
+    /** Streamed replies carry ONLY a thinking block (nothing replayable) —
+     *  the placeholder-capture lane (#3744 review). */
+    streamThinkingOnly?: boolean;
     /** Non-stream threads replies answer with this content array. */
     nonStreamContent?: unknown[];
 }
@@ -76,20 +80,6 @@ interface Harness {
     /** Drain in-flight reply captures so mirror reads are deterministic. */
     settle: () => Promise<void>;
     close: () => Promise<void>;
-}
-
-/** The production system-placement rule (#3744): a `system` message is only
- *  legal if an `assistant` message follows it somewhere later, or it ends the
- *  array. Returns the index of the first violation, or -1. This is what the
- *  real API enforced when bili's assistant-blind mirror rebuilt a create as
- *  `user system user system …`. */
-function firstPlacementViolation(messages: { role?: unknown }[]): number {
-    for (let i = 0; i < messages.length; i++) {
-        if (messages[i]?.role !== "system") continue;
-        const followedByAssistant = messages.slice(i + 1).some((m) => m?.role === "assistant");
-        if (!followedByAssistant && i !== messages.length - 1) return i;
-    }
-    return -1;
 }
 
 async function harness(storageMode: "full" | "legacy", opts: HarnessOpts = {}): Promise<Harness> {
@@ -142,7 +132,7 @@ async function harness(storageMode: "full" | "legacy", opts: HarnessOpts = {}): 
             // creates — the assistant-blind mirror's `user system user system`
             // rebuild must 400 here exactly like it did in production.
             if (threadType === "create") {
-                const violation = firstPlacementViolation(Array.isArray(body.messages) ? (body.messages as { role?: unknown }[]) : []);
+                const violation = firstAnthropicThreadsPlacementViolation(Array.isArray(body.messages) ? body.messages : []);
                 if (violation >= 0) {
                     res.writeHead(400, { "content-type": "application/json" });
                     res.end(JSON.stringify({ type: "error", error: { type: "invalid_request_error", message: `messages.${violation}: role 'system' must precede an 'assistant' message or end the array` } }));
@@ -155,6 +145,18 @@ async function harness(storageMode: "full" | "legacy", opts: HarnessOpts = {}): 
                 return;
             }
             if (stream) {
+                if (opts.streamThinkingOnly === true) {
+                    res.writeHead(200, { "content-type": "text/event-stream" });
+                    const id = `msg_${forwarded.length}`;
+                    const frames = [
+                        messageStart(id),
+                        ev("content_block_start", { type: "content_block_start", index: 0, content_block: { type: "thinking", thinking: "" } }),
+                        ev("content_block_delta", { type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "hmm" } }),
+                        blockStop(0),
+                    ];
+                    res.end([...frames, messageDelta(), messageStop].join(""));
+                    return;
+                }
                 sseReply(res, `msg_${forwarded.length}`, "answer " + forwarded.length, opts.streamToolUse === true);
                 return;
             }
@@ -545,6 +547,38 @@ test("threads lane: non-stream replies are mirrored, thinking blocks filtered (#
     }
 });
 
+test("threads lane: a thinking-only non-stream reply mirrors a placeholder assistant slot (#3744 review)", async () => {
+    const h = await harness("full", { nonStreamContent: [
+        { type: "thinking", thinking: "only scratch" },
+        { type: "redacted_thinking", data: "xxx" },
+    ] });
+    try {
+        await h.post({ ...createBody([{ role: "user", content: "hi" }]), stream: false });
+        await h.settle();
+        const mirror = h.readMirror("threads-1");
+        const reply = (mirror.entries ?? [])[1] as { role: string; content: { type: string; text?: string }[] };
+        assert.equal(reply.role, "assistant", "the turn still occupies an assistant slot in the mirror — without it every later reforged create 400s on the placement rule");
+        assert.equal(reply.content[0]?.type, "text");
+        assert.match(String(reply.content[0]?.text ?? ""), /\[threads-lane\] model reply carried no replayable content/, "self-describing placeholder, not a silent gap");
+    } finally {
+        await h.close();
+    }
+});
+
+test("threads lane: a thinking-only streamed reply mirrors a placeholder assistant slot (#3744 review)", async () => {
+    const h = await harness("full", { streamThinkingOnly: true });
+    try {
+        await h.post(createBody([{ role: "user", content: "hi" }]));
+        await h.settle();
+        const mirror = h.readMirror("threads-1");
+        const reply = (mirror.entries ?? [])[1] as { role: string; content: { type: string; text?: string }[] };
+        assert.equal(reply.role, "assistant", "SSE path: sawEvent but nothing replayable → placeholder, not a permanent ordering gap");
+        assert.match(String(reply.content[0]?.text ?? ""), /\[threads-lane\] model reply carried no replayable content/);
+    } finally {
+        await h.close();
+    }
+});
+
 test("threads lane: summary side-call ships the client's own headers + original system (variant B, #3744)", async () => {
     process.env.BILI_ROLLOUT_ANTHROPIC_THREADS_REFORGE = "1";
     const h = await harness("full", { window: 5000 });
@@ -584,8 +618,8 @@ test("threads lane: CC-style mid-conversation systems no longer break the reforg
         // Pin the validator both directions (#3617 gate discipline): the old
         // assistant-blind rebuild violates the rule; the captured-reply shape
         // satisfies it.
-        assert.ok(firstPlacementViolation([{ role: "user" }, { role: "user" }, { role: "system" }, { role: "user" }, { role: "system" }]) >= 0, "assistant-blind shape is a placement violation");
-        assert.equal(firstPlacementViolation([{ role: "user" }, { role: "system" }, { role: "assistant" }, { role: "user" }, { role: "system" }]), -1, "captured-reply shape is legal");
+assert.ok(firstAnthropicThreadsPlacementViolation([{ role: "user" }, { role: "user" }, { role: "system" }, { role: "user" }, { role: "system" }]) >= 0, "assistant-blind shape is a placement violation");
+    assert.equal(firstAnthropicThreadsPlacementViolation([{ role: "user" }, { role: "system" }, { role: "assistant" }, { role: "user" }, { role: "system" }]), -1, "captured-reply shape is legal");
         // CC 2.1.299 style: each continue delta carries a mid-conversation
         // `system`; the assistant reply lives server-side until captured.
         await h.post(createBody([
@@ -601,7 +635,7 @@ test("threads lane: CC-style mid-conversation systems no longer break the reforg
         assert.equal(reforged.thread?.type, "create", "the continue was swapped for a fresh create");
         const msgs = reforged.messages ?? [];
         assert.ok(msgs.some((m) => m.role === "assistant"), "captured assistant replies ride the rebuilt create");
-        assert.equal(firstPlacementViolation(msgs), -1, "rebuilt array satisfies the placement rule");
+        assert.equal(firstAnthropicThreadsPlacementViolation(msgs), -1, "rebuilt array satisfies the placement rule");
     } finally {
         delete process.env.BILI_ROLLOUT_ANTHROPIC_THREADS_REFORGE;
         await h.close();
