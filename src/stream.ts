@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { activeBlockSpans, collectBlockContent, countMessageTokens, defaultCountTokens, formatRanges, hideConsumedCompressCalls, storeCoveredOriginals, viableRanges, type CompressionCore, type Config, type CoreMessage, type CompressionState, type NudgeDecision, type CompressParseDiagnostics } from "acp-kernel";
+import { collectBlockContent, countMessageTokens, defaultCountTokens, formatRanges, hideConsumedCompressCalls, indexToRef, parseBoundary, storeCoveredOriginals, viableRanges, type CompressionCore, type Config, type CoreMessage, type CompressionState, type NudgeDecision, type CompressParseDiagnostics } from "acp-kernel";
 import { excludeDeadRefRanges, handleAcpStatus, liveCompressionRanges } from "./acp-status.js";
 import { handleAcpCache, recordCacheFoldsFromBlocks } from "./cache-ledger.js";
 import { type Session, cacheBlockContent, markDirty, scrubTurnSeparatorIds, statusInputBaseline } from "./session.js";
@@ -606,32 +606,44 @@ const DEGENERATE_FOLD_COVERAGE = 0.8;
  *  DEAD (the host commits applyCompression's cloned state even when zero blocks
  *  were created), and the receipt blames "content-changed" — none of which is
  *  true: the refs are intact and the view self-heals on the next model request
- *  (rememberPluginMessages after forward). Null = no refusal, proceed. */
+ *  (rememberPluginMessages after forward). Null = no refusal, proceed.
+ *
+ *  #3859: once that situation holds, yield to the kernel ONLY for batches it
+ *  can serve from state alone without writing anything it might regret — every
+ *  message-ref boundary of every range point-covered by an active block (the
+ *  #403/#2748 in-place refolds and their "already compressed" / net-shrink
+ *  diagnostics; block-ref and unknown boundaries are never tombstoned by the
+ *  kernel and are always safe). Anything else is refused as a whole batch:
+ *  with a fully empty view NO endpoint can be anchored (visibleBlockAnchor /
+ *  activeOwnerAnchor return null), so handing the kernel an uncovered boundary
+ *  ref walks straight into its dead-ref pass (#2362), which tombstones live
+ *  refs as DEAD although the session merely lost its transient view. The old
+ *  span-overlap exemption was exactly that mistake: overlap ≠ per-ref
+ *  coverage, and it admitted m00774–m00860-style ranges whose boundaries sit
+ *  in the gaps between blocks. Refusing costs at most one turn (the next model
+ *  request restores the view); passing through corrupts state. */
 export function noVisibleContextRefusal(
     ctx: RewriteCtx,
     ranges: ParsedRange[],
     opts?: { loopTracking?: boolean },
 ): ProxyToolResult | null {
     const view = ctx.compressMessages ?? ctx.messages;
-    const mappedRefs = Object.keys(ctx.session.state.messageRefs?.byRef ?? {}).length;
+    const byRef = ctx.session.state.messageRefs?.byRef ?? {};
+    const mappedRefs = Object.keys(byRef).length;
     if (view.length > 0 || mappedRefs === 0) return null;
-    // #398/#403 in-place refold works FROM state alone: after an inline
-    // decompress the originals leave the wire view (proxy mode) yet a
-    // re-compress of the restored span must still land on its block. The
-    // refusal therefore applies only when NO active block touches ANY
-    // requested ref — then nothing in the call can be served without live
-    // messages and every retry fails identically. Any overlap hands the
-    // decision back to the kernel, which keeps its own honest diagnostics
-    // for those shapes (refold / already-compressed / no-net-shrink).
-    const spans = activeBlockSpans(ctx.session.state);
-    const touchable = ranges.some((r) => {
-        const lo = refNum(r.startRef);
-        const hi = refNum(r.endRef);
-        if (lo === 0 || hi === 0) return true;
-        const a = Math.min(lo, hi), b = Math.max(lo, hi);
-        return spans.some((s) => refNum(s.startRef) <= b && refNum(s.endRef) >= a);
-    });
-    if (touchable) return null;
+    // Mirror of the kernel's danglingMessageRefs boundary test
+    // (kernel/src/compress.ts): unparseable/block refs are skipped by its
+    // dead-ref pass, refs with no rawId mapping are skipped unless already
+    // tombstoned (idempotent re-push), and only a MAPPED but uncovered rawId
+    // produces a fresh DEAD record — so only that last case must refuse.
+    const coveredRawIds = new Set(ctx.session.state.blocks.filter((b) => b.active).flatMap((b) => b.effectiveMessageIds));
+    const unvouchable = ranges.some((r) => [r.startRef, r.endRef].some((ref) => {
+        const parsed = parseBoundary(ref);
+        if (!parsed || parsed.kind !== "message") return false;
+        const rawId = byRef[parsed.raw] ?? byRef[indexToRef(parsed.numericId)];
+        return Boolean(rawId) && !coveredRawIds.has(rawId);
+    }));
+    if (!unvouchable) return null;
     const detail = ranges.map((r) => `${r.startRef}–${r.endRef}`).join(", ");
     ctx.log(`[acp-proxy: compress REFUSED ${detail} — no visible context (view=0 message(s), ${mappedRefs} ref(s) mapped); refs left untouched and nothing recorded as dead — the view self-heals on the next model request (#3126)]`);
     const specKey = normalizedSpecKey(ranges);
