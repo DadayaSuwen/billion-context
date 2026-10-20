@@ -408,6 +408,46 @@ test("#3818 unloadable cached copy is removed and a pinned download is retried (
     }
 });
 
+test("#3818 review: download ok but post-download registration fails -> 'failed' + cooldown, never a lying 'downloaded'", async () => {
+    const cachePrev = isolateCache();
+    let reg: MockRegistry | null = null;
+    try {
+        resetAllSeams();
+        // A tarball whose bytes pass sha512 verification and extract cleanly,
+        // but whose lib/index.js throws on require — the AV-quarantine /
+        // truncated-extract state the #3818 review fix covers.
+        const entries: FakeTarEntry[] = [
+            { name: "package/package.json", content: JSON.stringify({ name: "better-sqlite3", version: "13.0.3" }) },
+            { name: "package/lib/index.js", content: "throw new Error('prebuild broken');" },
+            ...ALL_TARGETS.map((t) => ({ name: `package/prebuilds/${t}.node`, content: Buffer.from(`FAKE-NODE-BINARY:${t}`) })),
+        ];
+        const tgz = buildTgz(entries);
+        setEngineBootstrapSpecForTests({ version: "13.0.3", sha512Base64: sha512B64(tgz) });
+        setSqliteProbeOverridesForTests({ builtin: false, host: false });
+        reg = await startMockRegistry(tgz);
+        await withRegistry(reg.base, async () => {
+            const out = await ensureSqliteEngine({ env: { ...UNIFIED_ENV } });
+            assert.equal(out.status, "failed", `registration failure must report failed, got ${JSON.stringify(out)}`);
+            assert.match(out.detail ?? "", /post-download registration failed/);
+            const dir = path.join(cachePrev, "billion-context", "sqlite", "better-sqlite3-13.0.3");
+            assert.ok(fs.existsSync(dir), "the verified bytes remain on disk");
+            const marker = path.join(cachePrev, "billion-context", "sqlite", ".bootstrap-failed.json");
+            assert.ok(fs.existsSync(marker), "cooldown armed for the broken environment");
+            // Next boot: the unloadable cache is removed by #3135-5, but the
+            // cooldown must still gate any re-download of ~11 MB.
+            resetEngineBootstrapForTests();
+            const out2 = await ensureSqliteEngine({ env: { ...UNIFIED_ENV } });
+            assert.equal(out2.status, "cooldown", `cooldown must gate the retry, got ${JSON.stringify(out2)}`);
+            assert.equal(reg!.requests(), 1, "no re-download while in cooldown");
+        });
+    } finally {
+        await reg?.close();
+        resetAllSeams();
+        restoreCache(cachePrev);
+        rmrf(cachePrev);
+    }
+});
+
 test("bootstrap: sha512 mismatch quarantines the download and arms the cooldown", async () => {
     const cachePrev = isolateCache();
     let reg: MockRegistry | null = null;
