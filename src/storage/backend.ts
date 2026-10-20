@@ -12,10 +12,12 @@ import { UnifiedStore } from "./store.ts";
  * the sqlite implementation below stays synchronous under the hood and
  * `Promise.resolve`-wraps its results — the hot-path cost is one microtask.
  *
- * `sqlite` is the default and, in step 1, the only real implementation.
- * `mysql` is a REGISTERED STUB: the name validates so configs don't bounce
- * between "unknown backend" and "unimplemented backend" when step 2 lands,
- * but opening it fails with one documented line, and mysql2 is never loaded.
+ * `sqlite` is the default. `mysql` is IMPLEMENTED (#3388 step 2, #3931):
+ * MysqlBackend implements the full contract against MySQL 8.0 (mysql2
+ * driver, a bundled dependency — #3931 owner decision). The module loads
+ * lazily inside openBackend("mysql", dsn), so boots that do not select
+ * mysql never load mysql2; the `indexPath` argument doubles as the DSN for
+ * mysql, mirroring how SqliteBackend.open consumes the index path.
  */
 
 export type {
@@ -123,6 +125,9 @@ export interface StorageBackend {
     contentDedupReport(): Promise<{ rows: number; bytesTotal: number; refcounted: number }>;
 
     close(): Promise<void>;
+    /** One-time DDL + schema stamp for network backends (MySQL); a no-op
+     *  for sqlite (create-on-open). Idempotent. */
+    init?(): Promise<void>;
 }
 
 /** The sqlite backend: the existing UnifiedStore behind the async contract.
@@ -290,17 +295,33 @@ export function listBackendNames(): string[] {
     return [...REGISTERED_BACKENDS];
 }
 
-/** Resolves a backend by name. `mysql` throws the documented step-2 error
- *  (registered, not implemented — the config tier must distinguish it from
- *  a typo'd name); unknown names throw with the valid list. */
-export function openBackend(name: string, indexPath: string, engine?: SqliteEngineName): StorageBackend {
+/** Opens a backend by name. `mysql` resolves to MysqlBackend: `indexPath`
+ *  is the DSN (mysql://user:pass@host:port/db), the pool connects lazily,
+ *  and `init()` (DDL + schema stamp) must run once before first use — the
+ *  contract suite does this in `before`. Unknown names throw with the valid
+ *  list. Async because the mysql module is dynamically imported (#3388
+ *  step-2 decision: bundled dependency, lazy load). */
+export async function openBackend(name: string, indexPath: string, engine?: SqliteEngineName): Promise<StorageBackend> {
     if (name === "sqlite") return SqliteBackend.open(indexPath, engine);
     if (name === "mysql") {
-        throw new Error(
-            `[storage] backend "mysql" is registered but not implemented yet (#3388 step 2, tracked in #3931) — it ships as a built-in backend with the mysql2 client; until then the unified store runs on "sqlite"`,
-        );
+        if (typeof indexPath !== "string" || indexPath.trim().length === 0) {
+            throw new Error(
+                `[storage] backend "mysql" needs a DSN — set BILI_MYSQL_DSN or storage.mysql.dsn (mysql://user:pass@host:3306/db); runs on "sqlite" until then`,
+            );
+        }
+        const { MysqlBackend } = await import("./mysql.js");
+        return new MysqlBackend(indexPath);
     }
     throw new Error(`[storage] unknown backend "${name}" — valid names: ${REGISTERED_BACKENDS.join(", ")}`);
+}
+
+/** env BILI_MYSQL_DSN > file storage.mysql.dsn > "" (empty = mysql cannot
+ *  open; the documented error above names both knobs). */
+export function resolveMysqlDsn(env: { BILI_MYSQL_DSN?: string | undefined } | undefined, file: string | undefined): string {
+    const fromEnv = env?.BILI_MYSQL_DSN;
+    if (typeof fromEnv === "string" && fromEnv.trim().length > 0) return fromEnv.trim();
+    if (typeof file === "string" && file.trim().length > 0) return file.trim();
+    return "";
 }
 
 /** env BILI_STORAGE_BACKEND > file storage.backend > "sqlite". Unknown
@@ -320,7 +341,10 @@ export function resolveBackendName(env: { BILI_STORAGE_BACKEND?: string | undefi
 export function backendSelectionNotice(name: string): string | undefined {
     if (name === "sqlite") return undefined;
     if ((REGISTERED_BACKENDS as readonly string[]).includes(name)) {
-        return `[storage] storage.backend="${name}" is registered but not implemented yet (#3388 step 2) — the unified store stays on "sqlite" for now`;
+        if (name === "mysql") {
+            return `[storage] storage.backend="mysql" opens via the StorageBackend contract (#3388/#3931 step 2) — export/replica/checkpoint paths speak it; the proxy hot path (shadow ingest) swaps to the async contract in step 3 and stays on "sqlite" until then`;
+        }
+        return `[storage] storage.backend="${name}" is registered but not implemented — the unified store stays on "sqlite"`;
     }
     return `[storage] storage.backend="${name}" is not a registered backend (valid: ${REGISTERED_BACKENDS.join(", ")}) — using "sqlite"`;
 }

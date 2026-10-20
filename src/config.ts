@@ -1831,6 +1831,12 @@ type FileConfig = {
          *  wins; a non-sqlite selection logs one notice and stays on
          *  sqlite until the backend ships. */
         backend?: string;
+        /** MySQL DSN for storage.backend="mysql" (#3388 step 2, #3931):
+         *  mysql://user:pass@host:3306/db — consumed by the StorageBackend
+         *  contract paths (export/replica/checkpoint). env BILI_MYSQL_DSN
+         *  wins. The proxy hot path stays on sqlite until the step-3 async
+         *  swap; the boot notice names that boundary. */
+        mysql?: { dsn?: string };
         /** Phase 3 (#2960): "off" stops writing the legacy JSON envelope while
          *  storage.unified is "full" — the SQLite index becomes the only
          *  persistent copy (reads were already unified-first; boot enumerates

@@ -3,19 +3,21 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { resolveBackendName, backendSelectionNotice } from "../src/storage/backend.ts";
-import { openBackend } from "../src/storage/backend.ts";
+import { resolveBackendName, backendSelectionNotice, resolveMysqlDsn, openBackend } from "../src/storage/backend.ts";
 
 /**
  * #3931 (step 1): the `storage.backend` selection surface.
  *
  *   env BILI_STORAGE_BACKEND  >  file storage.backend  >  "sqlite"
  *
- * `mysql` is a REGISTERED STUB — the name validates (so configs don't bounce
- * between "unknown backend" and "unimplemented backend" as step 2 lands),
- * but opening it fails with one documented, doctor-readable line. Step 1
- * never loads mysql2; the selection notice keeps the main store on sqlite
- * with a single warn line instead of crashing boots.
+ * `mysql` is IMPLEMENTED (#3388 step 2): openBackend("mysql", dsn) opens the
+ * real MysqlBackend (lazily importing mysql2 — boots that never select it
+ * never load it). The DSN precedence mirrors the backend name:
+ *
+ *   env BILI_MYSQL_DSN  >  file storage.mysql.dsn  >  "" (documented error)
+ *
+ * The selection notice still keeps the proxy hot path on sqlite — the
+ * shadow ingest rides the step-3 async swap instead of crashing boots.
  */
 
 test("resolveBackendName: env > file > default sqlite", () => {
@@ -36,22 +38,30 @@ test("backendSelectionNotice: silent on sqlite, explicit everywhere else", () =>
     assert.ok(backendSelectionNotice("oracle")!.includes("oracle"), "unknown names also produce a notice");
 });
 
-test("openBackend: sqlite opens; mysql throws the documented step-2 error; unknown lists valid names", () => {
+test("openBackend: sqlite opens; mysql needs a DSN; unknown lists valid names", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bili-backend-knob-"));
     try {
-        const b = openBackend("sqlite", path.join(dir, "index.db"));
-        b.close();
+        const b = await openBackend("sqlite", path.join(dir, "index.db"));
+        await b.close();
 
-        assert.throws(() => openBackend("mysql", path.join(dir, "index.db")), (err: unknown) => {
+        await assert.rejects(() => openBackend("mysql", ""), (err: unknown) => {
             const msg = String((err as Error).message);
-            return msg.includes("mysql") && msg.includes("#3388") && msg.includes("sqlite");
-        }, "mysql stub error names the backend, the issue, and the working default");
+            return msg.includes("mysql") && msg.includes("DSN") && msg.includes("BILI_MYSQL_DSN");
+        }, "mysql without a DSN names both knobs and the working default");
 
-        assert.throws(() => openBackend("oracle", path.join(dir, "index.db")), (err: unknown) => {
+        await assert.rejects(() => openBackend("oracle", path.join(dir, "index.db")), (err: unknown) => {
             const msg = String((err as Error).message);
             return msg.includes("oracle") && msg.includes("sqlite") && msg.includes("mysql");
         }, "unknown backend error lists the valid names");
     } finally {
         fs.rmSync(dir, { recursive: true, force: true });
     }
+});
+
+
+test("resolveMysqlDsn: env > file > empty; whitespace trims", () => {
+    assert.equal(resolveMysqlDsn({ BILI_MYSQL_DSN: "mysql://e/db" }, "mysql://f/db"), "mysql://e/db", "env wins");
+    assert.equal(resolveMysqlDsn(undefined, "mysql://f/db"), "mysql://f/db", "file fills in");
+    assert.equal(resolveMysqlDsn({ BILI_MYSQL_DSN: "  mysql://e/db  " }, undefined), "mysql://e/db", "env trims");
+    assert.equal(resolveMysqlDsn(undefined, undefined), "", "empty when neither is set");
 });

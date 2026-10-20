@@ -718,6 +718,13 @@ export function fileStorageBackend(): string | undefined {
     return typeof v === "string" ? v : undefined;
 }
 
+/** storage.mysql.dsn (#3388 step 2): the DSN for storage.backend="mysql".
+ *  env BILI_MYSQL_DSN wins (resolveMysqlDsn applies the precedence). */
+export function fileStorageMysqlDsn(): string | undefined {
+    const v = loadConfigFile().storage?.mysql?.dsn;
+    return typeof v === "string" && v.trim().length > 0 ? v : undefined;
+}
+
 export function fileStorageWalJournalSizeLimit(): number | undefined {
     const v = loadConfigFile().storage?.walJournalSizeLimitBytes;
     return typeof v === "number" && Number.isInteger(v) && v > 0 ? v : undefined;

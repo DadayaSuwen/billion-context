@@ -243,6 +243,39 @@ jobs:
           ACP_TEST_CLAUDE_NATIVE: "1"
           CI_TEST_SHARD: "${{ matrix.shard }}/${{ matrix.shardTotal }}"   # denominator carried per-include by the plan job (#3295)
 
+  # #3388 step 2: the MySQL contract lane. The storage-backend contract
+  # suite runs against a real mysql:8.0 service (BILI_MYSQL_TEST_DSN) in
+  # addition to the always-on sqlite lane inside the main test job. Cheap
+  # (two files, ~1min) so it rides the core scope — every PR proves the
+  # mysql backend still satisfies the operation contract.
+  mysql-contract:
+    needs: [plan]
+    if: ${{ !failure() && !cancelled() && needs.plan.outputs.scope != 'skip' }}
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: bili-test-root
+          MYSQL_DATABASE: bili
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -uroot -pbili-test-root"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm install --ignore-scripts --no-fund --no-audit
+      - run: node --import tsx --test tests/storage-backend-contract.test.ts tests/storage-backend-knob.test.ts
+        env:
+          BILI_MYSQL_TEST_DSN: mysql://root:bili-test-root@127.0.0.1:3306/bili
+
   # #2816: typecheck + the in-repo component suites + the bundle build used
   # to run sequentially in front of the test job (~90s of critical path per
   # leg). They are independent of the proxy test suites, so they run as

@@ -4,6 +4,14 @@ All notable changes to **billion-context** are documented here.
 Versions follow the merge of a `*_release-v*` branch; CI publishes to npm on tag.
 
 ## [Unreleased]
+
+### 存储:MySQL 后端落地(#3388 第二步,#3931)
+
+- `src/storage/mysql.ts`:MysqlBackend 完整实现 StorageBackend 操作契约(全 ~40 方法:带 CAS 引用计数的 ingest(delta/全量/completeLog)、读取、session_ext/kv、收割台账、checkpoint、会话绑定、归档/恢复/GC、诊断)—— MySQL 8.0 方言,mysql2 连接池(打进 dependencies,#3931 拍板:纯 JS ~500KB,锁文件钉版本),DDL 为 v7 形状直接建表(bili_meta 表存 schema 版本替 PRAGMA user_version;JSON 列一律 LONGTEXT 保字节序,MySQL JSON 类型会重排键序破坏 digest)。
+- `openBackend` 改异步:mysql 分支懒加载 mysql2(不选 mysql 的启动永不加载该模块);DSN 解析 `env BILI_MYSQL_DSN > storage.mysql.dsn > 缺省报错`(文档化错误列全两个旋钮)。
+- **边界(第三步待做)**:代理热路径(shadow ingest/persist.loadSync 同步契约)仍走 sqlite;今天 export 说 mysql(`storage.backend="mysql"` + DSN 直接从 MySQL 导出 JSONL);启动提示写明该边界。
+- CI 新增 `mysql-contract` lane:每次 PR 用 mysql:8.0 service 容器跑同一份契约套件(sqlite lane 永远在,mysql lane 有 DSN 就跑)。
+- 归档文件系统语义跨后端一致:mysql 后端的归档/恢复同样落本地 `archive/archive.jsonl`(单文件日志,#3927)。
 - 存储后端契约第一步(#3931, #3388):统一存储抽出操作级异步 `StorageBackend` 契约(`src/storage/backend.ts`),sqlite 经注册表以默认后端身份重新接入(Promise 包装适配器,零行为/零 schema 变化);`mysql` 为已注册占位 —— 选中时启动提示一行并继续用 sqlite,直开后端的路径(export)按文档化错误失败。新配置 `storage.backend`(env `BILI_STORAGE_BACKEND`,缺省 sqlite)。`--jsonl` 导出渲染器改吃契约(接缝证真);契约测试套件对任意后端实例跑同一断言,第二步 mysql 落地时原样复用。
 
 ### 存储收尾九项一车（#3901，修复 #3463/#3762/#3841/#3798/#3633；#3723 落地）

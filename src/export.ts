@@ -3,7 +3,8 @@ import path from "node:path";
 import { matchSession as matchSessionKernel, parseStoredPlaceholder, renderHandoff as renderHandoffKernel, type MessageContentStore } from "acp-kernel";
 import type { Session } from "./session.js";
 import { SessionStore } from "./persist.js";
-import { SqliteBackend, type StorageBackend } from "./storage/backend.js";
+import { SqliteBackend, openBackend, resolveBackendName, resolveMysqlDsn, type StorageBackend } from "./storage/backend.js";
+import { fileStorageBackend, fileStorageMysqlDsn } from "./knobs.js";
 import { UnifiedStore } from "./storage/store.js";
 
 interface ExportOptions {
@@ -349,6 +350,30 @@ export async function exportSession(selector: string | undefined, opts: ExportOp
         throw new Error(`selector "${selector}" matches ${matches.length} sessions (${ids}); use the full session id`);
     }
     if (opts.jsonl) {
+        // Backend-aware open (#3388 step 2): storage.backend="mysql" + a DSN
+        // exports straight from MySQL; everything else (and every fallback)
+        // stays on the local sqlite index. A mysql failure degrades to the
+        // legacy-tail renderer exactly like a corrupt index does.
+        const backendName = resolveBackendName(process.env, fileStorageBackend());
+        if (backendName === "mysql") {
+            const dsn = resolveMysqlDsn(process.env, fileStorageMysqlDsn());
+            if (dsn.length > 0) {
+                try {
+                    const backend = await openBackend("mysql", dsn);
+                    try {
+                        await backend.init?.();
+                        if (await backend.getSessionRow(matches[0]!.id)) {
+                            return await renderSessionJsonlFromTables(backend, matches[0]!.id, opts.full ?? false);
+                        }
+                    } finally {
+                        await backend.close();
+                    }
+                } catch (err) {
+                    process.stderr.write(`[export] mysql backend unreadable (${String(err)}) — falling back to the local index
+`);
+                }
+            }
+        }
         const index = path.join(store.dir, "index.db");
         const encrypted = process.env.BILI_ENCRYPTION_KEY !== undefined && process.env.BILI_ENCRYPTION_KEY !== "";
         if (existsSync(index) && !encrypted) {

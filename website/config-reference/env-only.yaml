@@ -16,8 +16,16 @@ entries:
     kind: env-only
     audience: user
     group: envonly
-    desc_en: "Env tier for storage.backend (#3931 step 1): sqlite (default, only real backend) or mysql (registered stub - one boot notice, stays on sqlite until step 2). Wins over the file tier."
-    desc_zh: "storage.backend 的环境变量层（#3931 第一步）：sqlite（默认，唯一真实现）或 mysql（注册占位 —— 启动提示一行，第二步落地前继续用 sqlite）。优先于文件层。"
+    desc_en: "Env tier for storage.backend (#3931): sqlite (default) or mysql (implemented, #3388 step 2 - openBackend speaks the full contract against MySQL 8.0; export works today, the proxy hot path swaps in step 3). Wins over the file tier."
+    desc_zh: "storage.backend 的环境变量层（#3931）：sqlite（默认）或 mysql（已实现，#3388 第二步 —— openBackend 对 MySQL 8.0 说完整契约;export 今天可用,代理热路径第三步接入）。优先于文件层。"
+  - key: BILI_MYSQL_DSN
+    type: string
+    default: "unset"
+    kind: env-only
+    audience: user
+    group: envonly
+    desc_en: "MySQL DSN (mysql://user:pass@host:3306/db) for storage.backend=\"mysql\" (#3388 step 2, #3931). Wins over the file key storage.mysql.dsn. Empty = the mysql backend cannot open; the documented error names both knobs."
+    desc_zh: "storage.backend=\"mysql\" 的 MySQL DSN（mysql://user:pass@host:3306/db）（#3388 第二步，#3931）。优先于文件键 storage.mysql.dsn。留空 = mysql 后端无法打开;文档化错误会列出两个旋钮。"
   - key: BILI_STORAGE_ARCHIVE_AFTER_DAYS
     type: integer
     default: "365"
