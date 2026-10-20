@@ -165,3 +165,35 @@ test("#4060 unit: a session that never folded keeps the inbound caliber exactly 
         "with nothing covered, both calibers must agree — the fix is inert on unfurled sessions",
     );
 });
+
+test("#4060 unit: byte-less media shapes shrink the reserve without any fold (documented delta)", () => {
+    // The no-fold equality above holds for inline base64/data-URL images. Media
+    // shapes the inbound body walker prices but whose bytes messageImageBytes
+    // cannot carry (remote URLs ride as a small URL string; redacted_thinking
+    // carries signature payload, not pixels) drop out of the metering reserve
+    // even on an unfolded session: outbound ≤ inbound still holds, and
+    // preflight prices these shapes through the body walker on the actual
+    // forward body, so overflow stays backstopped.
+    const urlMsg = {
+        id: "u-img",
+        role: "user",
+        contentType: "text",
+        text: "",
+        rawOpenaiContentParts: [{ type: "image_url", image_url: { url: "https://img.example/x.png" } }],
+    } as unknown as BiliMessage;
+    const urlInbound = { messages: [{ role: "user", content: [{ type: "image_url", image_url: { url: "https://img.example/x.png" } }] }] };
+    assert.equal(imageReserveFor(makeSession(), "openai", urlInbound, OPTS_BYTES, UPSTREAM), 4096, "inbound walker flat-prices the remote URL");
+    assert.equal(outboundImageReserve(makeSession(), [urlMsg], OPTS_BYTES, UPSTREAM), 0, "outbound view carries no pixels for a URL reference");
+
+    const rtData = "R".repeat(8000);
+    const rtMsg = {
+        id: "rt1",
+        role: "assistant",
+        contentType: "reasoning",
+        text: "",
+        rawAnthropicBlock: { type: "redacted_thinking", data: rtData },
+    } as unknown as BiliMessage;
+    const rtInbound = { messages: [{ role: "assistant", content: [{ type: "redacted_thinking", data: rtData }] }] };
+    assert.equal(imageReserveFor(makeSession(), "anthropic", rtInbound, OPTS_BYTES, UPSTREAM), 2000, "inbound walker bills the redacted payload");
+    assert.equal(outboundImageReserve(makeSession(), [rtMsg], OPTS_BYTES, UPSTREAM), 0, "no indexable image bytes in the outbound view");
+});
