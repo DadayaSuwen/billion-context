@@ -26,6 +26,7 @@ import { planIngest, planIngestDelta, loadLegacyView, completeBlockContents, typ
 import type { BlockView } from "../session.js";
 import { resolveStorageMode, resolveStorageWalJournalSizeLimit, type StorageMode } from "../knobs.ts";
 import { UnifiedStore, type CheckpointRow, type SessionSummaryRow, type WebSummaryRow } from "./store.ts";
+import { resolveBackendName, backendSelectionNotice } from "./backend.ts";
 import { canonicalize, sha256 } from "./canonical.ts";
 import { recordSidecarInstance, recordSidecarOpenFailure } from "./runtime-status.ts";
 import type { SqliteEngineName, SqliteEngineSource } from "./driver.ts";
@@ -123,10 +124,21 @@ export class UnifiedShadow {
         legacyLoad?: (record: unknown) => LegacySessionLike | null,
         fileUnified?: string,
         fileWalLimit?: number,
+        fileBackend?: string,
     ): UnifiedShadow | null {
         const mode = resolveStorageMode(env, fileUnified);
         if (mode === "legacy") return null;
         const walLimit = resolveStorageWalJournalSizeLimit(env, fileWalLimit);
+        // #3931: the backend seam. Step 1 keeps sqlite as the only real
+        // implementation; a non-sqlite selection (e.g. "mysql", step 2)
+        // logs ONE notice line and stays on sqlite rather than crashing
+        // boots — the hard error lives at openBackend() for the paths that
+        // open a backend directly (export).
+        const backendName = resolveBackendName(env, fileBackend);
+        if (backendName !== "sqlite") {
+            const notice = backendSelectionNotice(backendName);
+            if (notice) loggerLog("warn", notice);
+        }
         let store: UnifiedStore;
         try {
             store = UnifiedStore.open(`${dir}/index.db`, undefined, { walJournalSizeLimitBytes: walLimit });

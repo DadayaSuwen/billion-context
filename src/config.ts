@@ -1825,6 +1825,12 @@ type FileConfig = {
          *  BILI_SQLITE_AUTO_DOWNLOAD wins. A cached copy is still used when
          *  this is false — the switch gates the network fetch only. */
         sqliteAutoDownload?: boolean;
+        /** Storage backend selection (#3931, step 1 of the #3388 pluggable
+         *  plan): "sqlite" (default, only real implementation today) or
+         *  "mysql" (registered stub — step 2). env BILI_STORAGE_BACKEND
+         *  wins; a non-sqlite selection logs one notice and stays on
+         *  sqlite until the backend ships. */
+        backend?: string;
         /** Phase 3 (#2960): "off" stops writing the legacy JSON envelope while
          *  storage.unified is "full" — the SQLite index becomes the only
          *  persistent copy (reads were already unified-first; boot enumerates

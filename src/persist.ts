@@ -18,6 +18,7 @@ import {
     fileStorageJsonWriter,
     fileStorageArchiveAfterDays,
     fileStorageWalJournalSizeLimit,
+    fileStorageBackend,
 } from "./knobs.js";
 import { log as loggerLog } from "./logger.js";
 import { recordRequestedMode } from "./storage/runtime-status.js";
@@ -465,7 +466,7 @@ export class SessionStore {
             ? (UnifiedShadow.maybeOpen(this.sessionsDir, process.env, (rec) => {
                   const s = buildSession(rec as PersistedSession);
                   return toLegacyLike(s);
-              }, fileStorageUnified(), fileStorageWalJournalSizeLimit()) ?? undefined)
+              }, fileStorageUnified(), fileStorageWalJournalSizeLimit(), fileStorageBackend()) ?? undefined)
             : undefined;
         this.store = new StateStore<PersistedSession>({
             dir: this.sessionsDir,

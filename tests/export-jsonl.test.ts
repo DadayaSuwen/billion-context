@@ -6,6 +6,7 @@ import * as path from "node:path";
 import { SessionStore } from "../src/persist.ts";
 import { UnifiedStore } from "../src/storage/store.ts";
 import { exportSession, renderSessionJsonlFromTables, renderSessionJsonlFromSession } from "../src/export.ts";
+import { SqliteBackend } from "../src/storage/backend.ts";
 import { buildStoredPlaceholder } from "acp-kernel";
 import type { Session } from "../src/session.ts";
 
@@ -76,7 +77,7 @@ test("--jsonl renders from the unified tables: header, blocks, dead refs (folded
             const unified = UnifiedStore.open(path.join(dir, "folded", "index.db"));
             try {
                 assert.ok(unified.getSessionRow(session.id), "full mode must have ingested the session");
-                const lines = parseLines(renderSessionJsonlFromTables(unified, session.id, false));
+                const lines = parseLines(await renderSessionJsonlFromTables(new SqliteBackend(unified), session.id, false));
                 assert.equal(lines[0]!.type, "session");
                 assert.equal(lines[0]!.source, "unified");
                 assert.equal(lines[0]!.sessionId, session.id);

@@ -4,6 +4,7 @@ All notable changes to **billion-context** are documented here.
 Versions follow the merge of a `*_release-v*` branch; CI publishes to npm on tag.
 
 ## [Unreleased]
+- 存储后端契约第一步(#3931, #3388):统一存储抽出操作级异步 `StorageBackend` 契约(`src/storage/backend.ts`),sqlite 经注册表以默认后端身份重新接入(Promise 包装适配器,零行为/零 schema 变化);`mysql` 为已注册占位 —— 选中时启动提示一行并继续用 sqlite,直开后端的路径(export)按文档化错误失败。新配置 `storage.backend`(env `BILI_STORAGE_BACKEND`,缺省 sqlite)。`--jsonl` 导出渲染器改吃契约(接缝证真);契约测试套件对任意后端实例跑同一断言,第二步 mysql 落地时原样复用。
 
 ### 存储收尾九项一车（#3901，修复 #3463/#3762/#3841/#3798/#3633；#3723 落地）
 

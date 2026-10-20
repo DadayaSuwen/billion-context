@@ -252,6 +252,13 @@ entries:
     group: process
     desc_en: "Tiered storage-migration switch (#2671): shadow = unified SQLite double-write dry-run with digest reconciliation; full = drop-in read path (unified-first loads with organic import, legacy fallback). Absent everywhere now defaults to FULL (#3818 flip - the shadow dry-run reconciled cleanly since #2815, so the index is the load path; JSON envelopes keep being written, and legacy remains the one-line escape hatch). File tier is strict legacy/shadow/full; the env tier also accepts 1/true (=shadow) and unified (=full) and wins over the file. Resolved once per lane boot - hot edits need a restart. Encryption (BILI_ENCRYPTION_KEY) hard-blocks the sidecar."
     desc_zh: "分层存储迁移开关（#2671）：shadow = 统一 SQLite 双写干跑 + digest 对账；full = 平替读路径（unified-first 加载 + 有机导入 + legacy 兜底）。两处均未设置时默认 full（#3818 翻转 —— shadow 干跑自 #2815 起对账一直干净，索引因此成为默认加载路径；JSON 信封照写，legacy 仍是一行逃生口）。文件层只接受 legacy/shadow/full；环境变量层还接受 1/true（=shadow）与 unified（=full）并优先于文件。每个 lane 启动时解析一次 —— 热改动需重启生效。加密（BILI_ENCRYPTION_KEY）会硬阻断边车。"
+  - key: storage.backend
+    type: "sqlite|mysql"
+    default: "unset (sqlite)"
+    env: BILI_STORAGE_BACKEND
+    group: process
+    desc_en: "Storage backend selection, step 1 of the pluggable-storage plan (#3388 / #3931): the unified store consumes an operation-level async StorageBackend contract, with sqlite as the default and today the only real implementation (the existing UnifiedStore behind a Promise-wrapped adapter - zero behavior change, no schema change). mysql is a REGISTERED STUB: the name validates so configs do not bounce between unknown/unimplemented as the real backend ships (step 2, mysql2 client via the optional-dependency + self-download discipline), but selecting it logs one notice line at lane boot and the store stays on sqlite; paths that open a backend directly (export) fail with the documented error. Unknown names also fall back to sqlite with a notice. Resolved once per lane boot."
+    desc_zh: "存储后端选择，可插拔存储计划第一步（#3388 / #3931）：统一存储消费操作级的异步 StorageBackend 契约，sqlite 为默认且是当前唯一真实现（现有 UnifiedStore 套一层 Promise 包装适配器 —— 零行为变化、零 schema 变化）。mysql 是已注册占位：该名字能通过校验（真实后端随第二步落地 —— mysql2 客户端，走可选依赖+自下载纪律 —— 期间配置不会在 unknown/unimplemented 之间来回弹），但选中它只会在 lane 启动时打一行提示并继续用 sqlite；直接开后端的路径（export）按文档化的错误失败。未知名字同样回退 sqlite 并提示。每个 lane 启动时解析一次。"
   - key: storage.sqliteAutoDownload
     type: boolean
     default: "true"

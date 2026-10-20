@@ -10,6 +10,14 @@ entries:
     group: envonly
     desc_en: "Let bili ANSWER dsh compaction summarize calls locally with the folded snapshot instead of refusing (#3733): identity header + kernel-rendered block summaries, zero egress; replay recognized via the #2432 rebase."
     desc_zh: "让 bili 本地应答 dsh 压缩摘要请求（返回折叠快照而非拒绝，#3733）：身份头 + 内核渲染格式的块摘要，零出口流量；重放经 #2432 再基线识别。"
+  - key: BILI_STORAGE_BACKEND
+    type: "sqlite|mysql"
+    default: "sqlite"
+    kind: env-only
+    audience: user
+    group: envonly
+    desc_en: "Env tier for storage.backend (#3931 step 1): sqlite (default, only real backend) or mysql (registered stub - one boot notice, stays on sqlite until step 2). Wins over the file tier."
+    desc_zh: "storage.backend 的环境变量层（#3931 第一步）：sqlite（默认，唯一真实现）或 mysql（注册占位 —— 启动提示一行，第二步落地前继续用 sqlite）。优先于文件层。"
   - key: BILI_STORAGE_ARCHIVE_AFTER_DAYS
     type: integer
     default: "365"

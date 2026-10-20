@@ -713,6 +713,11 @@ export function fileStorageArchiveAfterDays(): number | undefined {
     return typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : undefined;
 }
 
+export function fileStorageBackend(): string | undefined {
+    const v = loadConfigFile().storage?.backend;
+    return typeof v === "string" ? v : undefined;
+}
+
 export function fileStorageWalJournalSizeLimit(): number | undefined {
     const v = loadConfigFile().storage?.walJournalSizeLimitBytes;
     return typeof v === "number" && Number.isInteger(v) && v > 0 ? v : undefined;
