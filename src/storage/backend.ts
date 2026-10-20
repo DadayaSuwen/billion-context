@@ -285,7 +285,6 @@ export class SqliteBackend implements StorageBackend {
 /** Names that validate in configuration. `mysql` validates but does not
  *  open — see openBackend. */
 const REGISTERED_BACKENDS = ["sqlite", "mysql"] as const;
-export type RegisteredBackendName = (typeof REGISTERED_BACKENDS)[number];
 
 export function listBackendNames(): string[] {
     return [...REGISTERED_BACKENDS];
