@@ -1703,7 +1703,10 @@ export function inboundResignCredential(
 // that would shrink the payload. Learning already measures the OUTBOUND body
 // (noteForwardedImageFacts on wireBody), so consuming the inbound one was an
 // asymmetry, not a design. Returns 0 when no image survives the prune — the
-// honest reserve for a text-only wire.
+// honest reserve for a text-only wire. Carrier-shape lockstep: messageImageBytes
+// (this reader) and the image-tokens.ts raw-body walkers (learning-side count +
+// inbound cost) are separate walkers — a NEW carrier shape must be added to both
+// or the reserve silently undercharges it (#3398 discipline).
 export function outboundImageReserve(
     session: Session,
     msgs: CoreMessage[],
