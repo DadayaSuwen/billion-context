@@ -5,7 +5,7 @@ import net from "node:net";
 import tls from "node:tls";
 import { createHash, randomUUID } from "node:crypto";
 import { performance } from "node:perf_hooks";
-import { createCore, type CompressionCore, type CompressionState, type Config, type CoreMessage, type NudgeDecision, type Prompts, type PackSurface, defaultPrompts, deactivateBlock } from "acp-kernel";
+import { createCore, prune, type CompressionCore, type CompressionState, type Config, type CoreMessage, type NudgeDecision, type Prompts, type PackSurface, defaultPrompts, deactivateBlock } from "acp-kernel";
 import { resolveCompress, resolveCompressPrompts, resolveCompressSurfaceDetailed, resolveRequestConfig, type ResolvedKernelConfig } from "./compress-settings.js";
 import { dropCompressReasoningIds, type CompressReasoningConfig } from "./reasoning-drop.js";
 import type { ProxyOptions, ResignSettings } from "./config.js";
@@ -76,7 +76,7 @@ import {
 import { ABSORB_TOOL_NAME, COMPRESS_TOOL, BILI_ACP_TOOLS_ANTHROPIC, BILI_ACP_TOOLS_ANTHROPIC_NO_RANGE, BILI_ACP_TOOLS_GOOGLE, BILI_ACP_TOOLS_GOOGLE_NO_RANGE, BILI_ACP_TOOLS_OPENAI, BILI_ACP_TOOLS_OPENAI_NO_RANGE, BILI_ACP_TOOLS_RESPONSES, BILI_ACP_TOOLS_RESPONSES_NO_RANGE, BILI_ACP_READONLY_TOOLS_RESPONSES, BILI_ACP_READONLY_TOOLS_RESPONSES_NO_RANGE, COMPRESS_TOOL_NAME, RULE_TOOL, RULE_TOOL_GOOGLE, RULE_TOOL_OPENAI, RULE_TOOL_RESPONSES, absorbToolsFor, retrieveToolsFor, buildAcpTagsOnlyPrompt } from "./compress-tool.js";
 import { absorbEnabled, storeEffectiveAbsorb } from "./absorb.js";
 import { ccrEnabled, ccrLoopConfig, ccrPluginWireOk, contentStoreOf, executeRetrieve, pruneExpiredRetrievals, reconcileReloadedRetrievals, renderRetrievalNotes, retrieveToolName, snapshotPendingRetrievals, snapshotRetrievalNotes, storeEffectiveCcr, type CcrSettings } from "./store.js";
-import { buildIncomingImageIndex, pruneRetrieveImgExports } from "./image-restore.js";
+import { buildIncomingImageIndex, messageImageBytes, pruneRetrieveImgExports } from "./image-restore.js";
 import { rulesEnabled, storeEffectiveRules } from "./rules-feature.js";
 import { storeEffectiveSearchPlanAware } from "./decompress-shared.js";
 import { armAutoFoldBackoff, autoFoldEngaged, AUTO_FOLD_BACKOFF_MS, externalQueueDroppedAll, withExternalSummaryTools } from "./external-summary-surface.js";
@@ -88,7 +88,7 @@ import { buildSessionCacheReport, handleAcpCache, learnedImageReserve, noteClien
 import { extractBillingAttributionBlock, extractSummaryFromSse, preflightCompress, estimateCoreMessages, estimateCoreMessagesUpper, estimateCoreMessagesUpperBytes, estimateRawBodyTokens, type PreflightResult } from "./preflight.js";
 import { buildDecisionPrompt, buildDirectiveText, consumeFallback, DEFAULT_DECIDE_MAX_TOKENS, DECIDE_TIMEOUT_MS, extractDecisionText, ladderMode, parseDecision, recordDecision, resolveDecisionRange, type DecideConfig, type DecisionOutcome } from "./nudge-decide.js";
 import { gcConfigFromEnv, gcSessionFiles } from "./session-gc.js";
-import { countImagesInParsedBody, countImagesInRawBody, imageTokensInRawBody, imageTokensInParsedBody, resolveImageBilling, upstreamHost, type ResolvedImageBilling } from "./image-tokens.js";
+import { base64ImageCost, countImagesInParsedBody, countImagesInRawBody, imageTokensInRawBody, imageTokensInParsedBody, resolveImageBilling, upstreamHost, type ResolvedImageBilling } from "./image-tokens.js";
 import { APIG_RESIGN_HEADER, APIG_RESIGN_CREDENTIAL_HEADER, APIG_RESIGN_SCHEME, KNOWN_SIGNATURE_SCHEMES, clearSignedRefusal, decodeApigCredential, inboundSignedScheme, readPendingRefusals, recordSignedRefusal, resignApig, signedRefusal, unresolvedRefusals, type ApigCredential } from "./apig-resign.js";
 import { renderUI, handleConfigGet, handleConfigPut, handleSummaryCredentialPut, buildOverview, buildSessionList, buildSessionPage, buildSessionDetail, hiddenEmptyCount } from "./web/index.js";
 import { reapOrphanBlocks } from "./orphan-gc.js";
@@ -1691,6 +1691,39 @@ export function inboundResignCredential(
     if (!resignSettingsFor(opts, upstreamUrl).enabled || marker !== APIG_RESIGN_SCHEME) return undefined;
     const encoded = Array.isArray(reqHeaders[APIG_RESIGN_CREDENTIAL_HEADER]) ? reqHeaders[APIG_RESIGN_CREDENTIAL_HEADER][0] : reqHeaders[APIG_RESIGN_CREDENTIAL_HEADER];
     return decodeApigCredential(encoded);
+}
+
+// #3952: the OUTBOUND image reserve — the same image mass imageReserveFor
+// charges, but measured on the messages that will actually ride the wire
+// instead of on the inbound request body. The client resends its whole history
+// every turn, folded images included, so an inbound-body reserve keeps charging
+// for pixels the egress prune already dropped: a long screenshot session
+// reserves hundreds of images that never leave the proxy, the window meter reads
+// several hundred percent, and the nudge emergency-suppresses the very folds
+// that would shrink the payload. Learning already measures the OUTBOUND body
+// (noteForwardedImageFacts on wireBody), so consuming the inbound one was an
+// asymmetry, not a design. Returns 0 when no image survives the prune — the
+// honest reserve for a text-only wire.
+export function outboundImageReserve(
+    session: Session,
+    msgs: CoreMessage[],
+    opts: ProxyOptions,
+    upstreamUrl: string | undefined,
+): number {
+    const billing = imageBillingFor(opts, upstreamUrl);
+    const cap = imageTokenCapFor(opts, upstreamUrl);
+    let prior = 0;
+    let nImages = 0;
+    for (const m of prune(msgs, session.state)) {
+        for (const img of messageImageBytes(m)) {
+            if (img.b64.length === 0) continue;
+            prior += base64ImageCost(img.b64, billing, cap);
+            nImages += 1;
+        }
+    }
+    if (nImages === 0) return 0;
+    const learned = learnedImageReserve(session, upstreamHost(upstreamUrl), nImages, `${billing}:${cap}`, cap);
+    return learned === undefined ? prior : Math.min(learned, prior);
 }
 
 // #1843 L1: the IMAGE-channel reserve for a payload — the prior-based estimate
