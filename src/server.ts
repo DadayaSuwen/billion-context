@@ -2353,7 +2353,7 @@ export function diagNudge(turn: { nudge?: { shouldInject: boolean; reason: strin
 // shrinks → the next estimate drops). Turn 1 of a fresh explicit session
 // still feeds 0 (nothing measured yet; nothing pending either), so
 // first-turn behavior is byte-identical to pre-#728.
-export function effectiveTokenCount(session: Session, msgs: CoreMessage[], inboundImageTokens = 0): { tokens: number; source: "usage" | "estimate" } {
+export function effectiveTokenCount(session: Session, msgs: CoreMessage[], imageTokens = 0): { tokens: number; source: "usage" | "estimate" } {
     // #1492: only usage-grade baselines are authoritative sizing inputs. An
     // estimate-sourced value describes ONE turn's outbound — possibly the FULL
     // raw history on an unfolded fallback turn — and pinning the nudge to it
@@ -2375,7 +2375,7 @@ export function effectiveTokenCount(session: Session, msgs: CoreMessage[], inbou
     // reporting upstreams fall back to legacy sizing rather than a frozen meter.
     const anchored = postRebuildAnchorTokens(session);
     if (anchored > 0) return { tokens: anchored, source: "estimate" };
-    const raw = estimateCoreMessagesUpper(msgs) + inboundImageTokens;
+    const raw = estimateCoreMessagesUpper(msgs) + imageTokens;
     // #1569/#1839: while the latest baseline is not usage-grade (the transient
     // window right after a failed turn), sizing on ANY re-derived view is how
     // ghosts enter: #1569 first tried min(est, raw) — the char-count upper
