@@ -1693,7 +1693,7 @@ export function inboundResignCredential(
     return decodeApigCredential(encoded);
 }
 
-// #3952: the OUTBOUND image reserve — the same image mass imageReserveFor
+// #4060: the OUTBOUND image reserve — the same image mass imageReserveFor
 // charges, but measured on the messages that will actually ride the wire
 // instead of on the inbound request body. The client resends its whole history
 // every turn, folded images included, so an inbound-body reserve keeps charging
