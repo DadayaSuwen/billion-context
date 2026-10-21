@@ -41,7 +41,7 @@ function coreMsg(fields: [string, SymVal][], rawParts: SymVal[]): SymVal {
 /** REAL coreToGoogle over a symbolic core array. */
 function runCoreToGoogle(ctx: KCtx, msgs: SymVal): { ret: SymVal; assumptions: unknown[]; degradations: string[] } {
   const out = translateFunction({
-    file: "/home/dog/tmp/bili-verif2/kernel/src/wire/google.ts",
+    file: new URL("../kernel/src/wire/google.ts", import.meta.url).pathname,
     function: "coreToGoogle",
     params: { messages: msgs },
     ctx: ctx as never,

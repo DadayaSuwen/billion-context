@@ -25,7 +25,11 @@ import type { Term } from "../verif/terms.ts";
  * negative controls via UNSAT.
  */
 
-const KP = "/home/dog/tmp/bili-verif2/kernel/src/wire/anthropic.ts";
+const KP = new URL("../kernel/src/wire/anthropic.ts", import.meta.url).pathname;
+
+const haveSolver = (() => {
+  try { void solveSmt2("(check-sat)", []); return true; } catch { return false; }
+})();
 
 function makeIdPort(): (role: SymVal, ct: SymVal, text: SymVal, opts?: SymVal) => SymVal {
   const memo = new Map<string, SymVal>();
@@ -64,7 +68,7 @@ function makeCounterPorts(): Record<string, (recv: SymVal, ...rest: SymVal[]) =>
   };
 }
 
-test("wire-anthropic round-trip: block order + payload preserved (same-role pairs)", { timeout: 240_000 }, () => {
+test("wire-anthropic round-trip: block order + payload preserved (same-role pairs)", { timeout: 240_000, skip: !haveSolver }, () => {
   // Pin each run's block types to constants: the symbolic-type union across
   // switch arms merges payloads through the tool_use arm's safeStringify
   // degrade ({kind:"any"} has no term to query). ORDER+payload per pinned
@@ -106,7 +110,7 @@ test("wire-anthropic round-trip: block order + payload preserved (same-role pair
   }
 });
 
-test("wire-anthropic round-trip: thinking keeps its own message after same-role group (cross-message order)", { timeout: 240_000 }, () => {
+test("wire-anthropic round-trip: thinking keeps its own message after same-role group (cross-message order)", { timeout: 240_000, skip: !haveSolver }, () => {
   const ctx = newCtx();
   const strv = (t: unknown) => ({ kind: "str", t }) as SymVal;
   const TYPE1 = ctx.String.val("text"); // block-1 type pinned: this test exercises
